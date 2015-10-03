@@ -1,40 +1,49 @@
 ### AWS Production Configuration
 
-This is a set of opinionated scripts on how to run a good production deployment of Deis on AWS, using Bastion Hosts, isolating deis itself from the internet and many other little goodies.
+This is a set of opinionated scripts on how to run a good production deployment of Deis on AWS, use Bastion Hosts, and isolate deis itself from the internet and many other little goodies.
 
-There are 2 different set of directories involved with separate scripts
+There are 2 directories (cluster & vpc) involved in the setup process that include independent scripts:
 
-* `cluster` - Sets up Deis and all of its bells and whistles in a private network setup
-* `vpc` - Sets up a Bastion and NAT hosts so *operators* can interface with the Deis installation from the outside world
+* `cluster/` - Sets up Deis and all of its bells and whistles in a private network setup
+* `vpc/` - Sets up a Bastion and NAT hosts so *operators* can interface with the Deis installation from the outside world
 
-If you do not want to use your default `aws` cli profile for this setup then set `AWS_CLI_PROFILE` to the appropriate profile
+Note: If you do not want to use your default `aws` cli profile for this setup then set `AWS_CLI_PROFILE` to the appropriate profile
 
-#### Bastion Cluster
+#### Part I: Setting up the Bastion Cluster
 
-The Bastion cluster is all about isolating Deis from the internet and creating a VPC that has the appropriate network subnets to accomplish that.
+Using a Bastion cluster, you can proxy requests from the internet to your Deis cluster and create a VPC that has the appropriate network subnets to accomplish that.
 
 This cluster consists of a Bastion host running Ubuntu 14.04 and a NAT host running Amazon Linux NAT setup.
+
+The following steps should be done inside the `vpc` directory:
 
 Copy `vpc.parameters.json.example` to `vpc.parameters.json` and change any parameters needed. `KeyPair` is essential as it tells CloudFormation what AWS SSH Key to use but can also be used to change the instance sizes
 
 If you need to generate a new ssh key then simply run
 
 ```
-ssh-keygen -q -t rsa -f ~/.ssh/deis -N '' -C deis-bastion
-aws ec2 import-key-pair --key-name deis-bastion --public-key-material file://~/.ssh/deis-bastion.pub
+ssh-keygen -q -t rsa -f ~/.ssh/deis-bastion -N '' -C deis-bastion
+    aws ec2 import-key-pair --key-name deis-bastion --public-key-material file://~/.ssh/deis-bastion.pub
 ```
+
 
 * `DEIS_BASTION_SSH_KEY` By default `~/.ssh/<keypair>` is matched and uses the keypair name put into the parameters file
 
 Or follow http://docs.deis.io/en/latest/installing_deis/aws/ for more information
 
-Now run `./provision-vpc.sh stack-name template.json` (omit arguments you do not need) and sit on your hands for a little bit.
+Now run `./provision-vpc.sh` to provision and sit on your hands for a little bit.
 
-When the provisioning is done then grab the AWS instance ID for the Bastion host and do `export BASTION_ID=i-xxxxxx` so that other know where the Bastion host is located at.
+Additional arguements are: <stack-name> and <template> (see bottom of the document for information on how to generate templates)
 
-*NOTE:* Currently this does provision into an existing VPC
+Follow the CLI instructions for any additional actions that need to be done.
 
-#### Provisioning Deis Cluster
+*NOTE:* Currently this does not provision into an existing VPC
+
+#### Part II: Provisioning Deis Cluster
+
+With an existing VPC setup (using the steps above or done yourself) in place now it is time to setup Deis.
+
+The following steps should be done in the `cluster` directory:
 
 Copy `cluster.parameters.json.example` to `cluster.parameters.json` and change any parameters needed. `KeyPair` is essential as it tells CloudFormation what AWS SSH Key to use but can also be used to change the instance sizes. Right now same instance size is applied to all servers.
 
@@ -49,6 +58,10 @@ Or follow http://docs.deis.io/en/latest/installing_deis/aws/ for more informatio
 
 The Deis cluster can be launched into an existing VPC, be it the one created with the bastion setup above or one of your own making then some information bits need to be provided.
 
+`BASTION_ID` is needed if you have chosen to go down the bastion host route- This is needed to configure various pieces of the Deis platform if behind the bestion host.
+Setting this will auto discover the `VPC_ID` for you.
+
+If you are provisioning into an existing VPC setup without a Bastion Host then the following applies:
 Possible ENV vars that can be set, with `VPC_ID` being the only required one. The rest are auto discovered unless particular one should be set differently by hand
 
 ```
@@ -57,9 +70,6 @@ export VPC_ZONES="us-west-2a us-west-2b us-west-2c"
 export VPC_SUBNETS="subnet-9f5b0ffa subnet-d41c76a3 subnet-1e54d847
 export VPC_PRIVATE_SUBNETS="subnet-9c5b0ff9 subnet-d51c76a2 subnet-1154d848"
 ```
-
-Also `BASTION_ID` is needed if you have chosen to go down that route - This is needed to configure various pieces of the Deis platform if behind the bestion host.
-Setting this will auto discover the `VPC_ID` for you.
 
 With the above ENV vars in place you should have enough of a based information set to start spinning up Deis.
 
