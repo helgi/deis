@@ -42,41 +42,21 @@ else
     TEMPLATE=$2
 fi
 
+# Template has 2 instances
+DEIS_NUM_TOTAL_INSTANCES=2
+
 # Update the AWS CloudFormation stack
 echo_green "Starting CloudFormation Stack updating"
-template_source $TEMPLATE
+TEMPLATE_SOURCING=$(template_source $TEMPLATE)
 aws cloudformation update-stack \
   $TEMPLATE_SOURCE \
   --stack-name $STACK_NAME \
   --parameters "$(<$PARAMETERS_FILE)" \
-  --stack-policy-body $THIS_DIR/stack_policy.json \
+  --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \
   $EXTRA_AWS_CLI_ARGS
 
 # Loop until stack update is complete
-ATTEMPTS=60
-SLEEPTIME=10
-COUNTER=1
-until [ "$STACK_STATUS" = "UPDATE_COMPLETE" -o "$STACK_STATUS" = "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS" ]; do
-  if [ $COUNTER -gt $ATTEMPTS ]; then
-    echo "Updating failed"
-    exit 1
-  fi
-
-  STACK_STATUS=$(get_stack_status $STACK_NAME)
-  if [ $STACK_STATUS != "UPDATE_IN_PROGRESS" -a $STACK_STATUS != "UPDATE_COMPLETE" -a $STACK_STATUS != "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS" ] ; then
-    echo "error updating stack: "
-    aws --output text cloudformation describe-stack-events \
-        --stack-name $STACK_NAME \
-        --query 'StackEvents[?ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
-        $EXTRA_AWS_CLI_ARGS
-    exit 1
-  fi
-
-  echo "Waiting for update to complete ($STACK_STATUS, $(expr 61 - $COUNTER)0s) ..."
-  sleep $SLEEPTIME
-
-  let COUNTER=COUNTER+1
-done
+stack_progress $STACK_NAME 'UPDATE'
 
 echo_green "\nYour Deis VPC on AWS CloudFormation has been successfully updated.\n"
 

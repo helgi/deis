@@ -3,14 +3,14 @@
 # Change aws profiles is needed
 # TODO change this perhaps so it is more deis specific?
 if [ ! -z "$AWS_CLI_PROFILE" ]; then
-    EXTRA_AWS_CLI_ARGS+="--profile $AWS_CLI_PROFILE"
+  EXTRA_AWS_CLI_ARGS+="--profile $AWS_CLI_PROFILE"
 fi
 
 template_source() {
     TEMPLATE=$1
     TEMPLATE_SIZE=$(wc -c < $TEMPLATE)
     TEMPLATE_SOURCING="--template-body file://$TEMPLATE"
-    if [[ "$TEMPLATE_SIZE" -gt "51200" ]]; then
+    if [ "$TEMPLATE_SIZE" -gt "51200" ]; then
         echo_yellow "Template file exceeds the 51,200 byte AWS CloudFormation limit. Uploading to S3"
 
         BUCKET=deis-cloudformation-templates
@@ -29,6 +29,8 @@ template_source() {
         TEMPLATE_SOURCING="--template-url https://$BUCKET.s3.amazonaws.com/$FILE"
         echo_green "S3 upload done to s3://$BUCKET/$FILE"
     fi
+
+    echo $TEMPLATE_SOURCING
 }
 
 get_sshkey() {
@@ -144,4 +146,77 @@ ssh_copy() {
       -o StrictHostKeyChecking=no \
       -o LogLevel=quiet \
       $1 ubuntu@$(get_bastion_host):$2 >/dev/null
+}
+
+stack_progress() {
+  STACK_NAME=$1
+  TYPE=$2
+  ATTEMPTS=60
+  SLEEPTIME=10
+  COUNTER=1
+  INSTANCE_IDS=""
+
+  until [ $(wc -w <<< $INSTANCE_IDS) -eq $DEIS_NUM_TOTAL_INSTANCES ] && ([ "$STACK_STATUS" = "${TYPE}_COMPLETE" ] || [ "$STACK_STATUS" = "${TYPE}_COMPLETE_CLEANUP_IN_PROGRESS" ]) ; do
+    if [ $COUNTER -gt $ATTEMPTS ]; then
+      echo "Instance action failed (timeout, $(wc -w <<< $INSTANCE_IDS) of $DEIS_NUM_TOTAL_INSTANCES ready after 10m)"
+      echo "Operation failed"
+      exit 1
+    fi
+
+    STACK_STATUS=$(get_stack_status $STACK_NAME)
+    if [ $STACK_STATUS != "${TYPE}_IN_PROGRESS" -a $STACK_STATUS != "${TYPE}_COMPLETE" ] ; then
+      echo "operation failed: "
+      aws --output text cloudformation describe-stack-events \
+          --stack-name $STACK_NAME \
+          --query "StackEvents[?ResourceStatus=='${TYPE}_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
+          $EXTRA_AWS_CLI_ARGS
+      exit 1
+    fi
+
+    INSTANCE_IDS=$(
+      aws ec2 describe-instances \
+          --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running \
+          --query 'Reservations[].Instances[].[ InstanceId ]' \
+          --output text \
+          $EXTRA_AWS_CLI_ARGS
+    )
+
+    echo "Waiting for operation to complete ($STACK_STATUS, $(expr 61 - $COUNTER)0s) ..."
+    sleep $SLEEPTIME
+
+    let COUNTER=COUNTER+1
+  done
+}
+
+stack_health() {
+  STACK_NAME=$1
+  ATTEMPTS=60
+  SLEEPTIME=10
+  COUNTER=1
+  INSTANCE_STATUSES=""
+  until [ `wc -w <<< $INSTANCE_STATUSES` -eq $DEIS_NUM_TOTAL_INSTANCES ]; do
+    if [ $COUNTER -gt $ATTEMPTS ]; then
+      exit 1
+    fi
+
+    if [ $COUNTER -ne 1 ]; then sleep $SLEEPTIME; fi
+    echo "Waiting for instances to pass initial health checks ($(expr 61 - $COUNTER)0s) ..."
+    INSTANCE_IDS=$(
+      aws ec2 describe-instances \
+          --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running \
+          --query 'Reservations[].Instances[].[ InstanceId ]' \
+          --output text \
+          $EXTRA_AWS_CLI_ARGS
+    )
+
+    INSTANCE_STATUSES=$(
+      aws ec2 describe-instance-status \
+          --filters Name=instance-status.reachability,Values=passed \
+          --instance-ids $INSTANCE_IDS \
+          --query 'InstanceStatuses[].[ InstanceId ]' \
+          --output text \
+          $EXTRA_AWS_CLI_ARGS
+    )
+    let COUNTER=COUNTER+1
+  done
 }

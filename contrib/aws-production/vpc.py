@@ -37,7 +37,11 @@ class VPC(object):
             raise Exception("VPC ID %s does not exist in this AWS setup" % self.id)
 
     def get_bastion_info(self, bastion_id):
-        cmd = 'aws ec2 describe-instances --instance-ids %s --query \'Reservations[0].Instances[0].{"host": PublicIpAddress, "vpc_id": NetworkInterfaces[0].VpcId, "sg": SecurityGroups[0].GroupId}\'' % bastion_id
+        cmd = """\
+            aws ec2 describe-instances \
+                --instance-ids %s \
+                --query 'Reservations[0].Instances[0].{"host": PublicIpAddress, "vpc_id": NetworkInterfaces[0].VpcId, "sg": SecurityGroups[0].GroupId}'
+        """ % bastion_id
         bastion = self.run(cmd)
         bastion = json.loads(bastion)
         self.bastion = bastion
@@ -50,15 +54,24 @@ class VPC(object):
         if self.gateway:
             return self.gateway
 
-        cmd = 'aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=%s" --query "InternetGateways[].InternetGatewayId" --output text' % self.id
-        gateway = self.run(cmd)
-        self.gateway = gateway.strip()
+        cmd = """\
+            aws ec2 describe-internet-gateways \
+                --filters 'Name=attachment.vpc-id,Values=%s' \
+                --query 'InternetGateways[].InternetGatewayId' \
+                --output text
+        """ % self.id
+        self.gateway = self.run(cmd)
         return self.gateway
 
     # Gets all subnets and their AZs
     def discover_subnets(self):
         public_subnets = self.discover_public_subnets()
-        cmd = 'aws ec2 describe-subnets --filters "Name=vpc-id,Values=%s" --query "sort_by(Subnets, &AvailabilityZone)[*].[AvailabilityZone, SubnetId]"' % self.id
+        cmd = """\
+            aws ec2 describe-subnets \
+                --filters 'Name=vpc-id,Values=%s' \
+                --query 'sort_by(Subnets, &AvailabilityZone)[*].[AvailabilityZone, SubnetId]'
+        """ % self.id
+
         subnets = self.run(cmd)
         subnets = json.loads(subnets)
         data = {}
@@ -88,18 +101,22 @@ class VPC(object):
     # Gets all public subnets
     def discover_public_subnets(self):
         self.discover_gateway()
-        cmd = 'aws ec2 describe-route-tables --filters "Name=vpc-id,Values=%s,Name=route.gateway-id,Values=%s" --query "RouteTables[].Associations[].SubnetId"' % (self.id, self.gateway)
+        cmd = """\
+            aws ec2 describe-route-tables \
+                --filters 'Name=vpc-id,Values=%s,Name=route.gateway-id,Values=%s' \
+                --query 'RouteTables[].Associations[].SubnetId'
+        """ % (self.id, self.gateway)
         subnets = self.run(cmd)
         subnets = json.loads(subnets)
         return subnets
 
     def run(self, cmd):
         if self.aws_profile:
-            cmd += " --profile %s" % self.aws_profile
-        data, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+            cmd = "%s --profile %s" % (cmd.strip(), self.aws_profile)
+        data, err = subprocess.Popen(cmd.strip(), shell=True, stdout=subprocess.PIPE).communicate()
         if err:
             raise Exception("Command failed: " + err)
-        return data
+        return data.strip()
 
     # TODO: Gather the IP range people like, such as 10.0.x.y to add missing subnets into
 
@@ -124,7 +141,12 @@ if __name__ == '__main__':
         output += 'DEIS_VPC_PRIVATE_SUBNETS="%s"' % ' '.join(vpc.private_subnets)
         print output
     elif args['format'] == 'json':
-        print json.dumps({'id': vpc.id, 'zones': vpc.zones, 'subnets': vpc.subnets, 'private_subnets': vpc.private_subnets})
+        print json.dumps({
+            'id': vpc.id,
+            'zones': vpc.zones,
+            'subnets': vpc.subnets,
+            'private_subnets': vpc.private_subnets
+        })
     elif args['format'] == 'human':
         print 'VPC ID: %s' % vpc.id
         print 'VPC Availability Zones: %s' % ' '.join(vpc.zones)

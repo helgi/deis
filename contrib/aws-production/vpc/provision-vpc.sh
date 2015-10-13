@@ -38,7 +38,7 @@ check_sshkey $PARAMETERS_FILE $DEIS_BASTION_SSH_KEY
 
 if [ -z "$1" ]; then
     STACK_NAME=deis-vpc
-  else
+else
     STACK_NAME=$1
 fi
 
@@ -52,9 +52,12 @@ else
     TEMPLATE=$2
 fi
 
+# Template has 2 instances
+DEIS_NUM_TOTAL_INSTANCES=2
+
 # Create an AWS cloudformation stack based on the a generated template
 echo_green "Starting CloudFormation Stack creation"
-template_source $TEMPLATE
+TEMPLATE_SOURCING=$(template_source $TEMPLATE)
 aws cloudformation create-stack \
   $TEMPLATE_SOURCING \
   --stack-name $STACK_NAME \
@@ -62,40 +65,24 @@ aws cloudformation create-stack \
   --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \
   $EXTRA_AWS_CLI_ARGS
 
-
 # Loop until stack creation is complete
-ATTEMPTS=60
-SLEEPTIME=10
-COUNTER=1
-INSTANCE_IDS=""
-until [ "$STACK_STATUS" = "CREATE_COMPLETE" ]; do
-  if [ $COUNTER -gt $ATTEMPTS ]; then
-    echo "Provisioning failed"
-    echo "Destroying stack $STACK_NAME"
-    bailout $STACK_NAME
-    exit 1
-  fi
+if ! stack_progress $STACK_NAME 'CREATE' ; then
+  echo "Destroying stack $STACK_NAME"
+  bailout $STACK_NAME
+  exit 1
+fi
 
-  STACK_STATUS=$(get_stack_status $STACK_NAME)
-  if [ $STACK_STATUS != "CREATE_IN_PROGRESS" -a $STACK_STATUS != "CREATE_COMPLETE" ] ; then
-    echo "error creating stack: "
-    aws --output text cloudformation describe-stack-events \
-        --stack-name $STACK_NAME \
-        --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
-        $EXTRA_AWS_CLI_ARGS
-    bailout $STACK_NAME
-    exit 1
-  fi
-
-  echo "Waiting for provisioning to complete ($STACK_STATUS, $(expr 61 - $COUNTER)0s) ..."
-  sleep $SLEEPTIME
-
-  let COUNTER=COUNTER+1
-done
+# Loop until the instances pass health checks
+if ! stack_health $STACK_NAME ; then
+  echo "Health checks not passed after 10m, giving up"
+  echo "Destroying stack $STACK_NAME"
+  bailout $STACK_NAME
+  exit 1
+fi
 
 echo_green "\nYour Deis VPC was deployed to AWS CloudFormation as stack "$STACK_NAME".\n"
 
-aws --output text cloudformation describe-stacks --stack-name $STACK_NAME $EXTRA_AWS_CLI_ARGS
+aws cloudformation describe-stacks --stack-name $STACK_NAME --output text $EXTRA_AWS_CLI_ARGS
 
 printf "\nInstances are available:\n"
 aws ec2 describe-instances \
@@ -103,6 +90,11 @@ aws ec2 describe-instances \
   --query "Reservations[].Instances[].[InstanceId,PublicIpAddress,InstanceType,Placement.AvailabilityZone,State.Name]" \
   --output text \
   $EXTRA_AWS_CLI_ARGS
+
+# script kick off SSH agent and save in the env file for ssh
+# Allows for adding ssh keys to the ssh agent
+# This can't go into cloud-init; SSH becomes unavailable if dropped too early
+ssh_copy "$THIS_DIR/ssh_agent.sh" "~/.ssh/rc"
 
 BASTION_ID=$(
   aws ec2 describe-instances \
@@ -112,11 +104,6 @@ BASTION_ID=$(
     --output text \
     $EXTRA_AWS_CLI_ARGS
 )
-
-# script kick off SSH agent and save in the env file for ssh
-# Allows for adding ssh keys to the ssh agent
-# This can't go into cloud-init; SSH becomes unavailable if dropped too early
-ssh_copy "$THIS_DIR/ssh_agent.sh" "~/.ssh/rc"
 
 echo_green "\nBastion Instance ID is: $BASTION_ID"
 echo_green "Run the following before moving on to the Deis Cluster setup"

@@ -15,7 +15,7 @@ template = json.load(open(os.path.join(CURR_DIR, 'vpc.template.json'), 'r'))
 if args['include_private_subnets']:
     cmd = 'aws configure get region --profile %s' % os.getenv('AWS_CLI_PROFILE', 'default')
     region, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
-    region = region.strip("\"\n")
+    region = region.strip()
 
     regions = ['us-west-2', 'us-east-1', 'eu-west-1']
     if region not in regions:
