@@ -25,6 +25,7 @@
       "Type": "AWS::AutoScaling::LaunchConfiguration",
       "Properties": {
         "ImageId" : { "Fn::FindInMap" : [ "CoreOSAMIs", { "Ref" : "AWS::Region" }, { "Ref" : "EC2VirtualizationType" }]},
+        "DisableApiTermination" : "true",
         "InstanceType": {"Ref": "InstanceType"},
         "IamInstanceProfile" : {
           "Fn::If" : [

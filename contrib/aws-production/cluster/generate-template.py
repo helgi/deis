@@ -35,6 +35,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--channel', help='the CoreOS channel to use', default='stable')
 parser.add_argument('--version', help='the CoreOS version to use', default='current')
 parser.add_argument('--updating', help='Indicates template is in update mode and does not make a new discovery url', action='store_true')
+parser.add_argument('--disable-termination-protection', help='Disable instance termination protection. Instances can be accidentally deleted', default=True, action='store_false')
 
 parser.add_argument('--aws-profile', help='Sets which AWS Profile configured in the AWS CLI to use',
                     metavar="<profile>", default=os.getenv("AWS_CLI_PROFILE"))
@@ -320,6 +321,9 @@ def add_plane(tp, template, worker=False, planes=[]):
     # Update subnets and zones
     template['Resources'][tp + 'PlaneAutoScale']['Properties']['AvailabilityZones'] = vpc.zones
     template['Resources'][tp + 'PlaneAutoScale']['Properties']['VPCZoneIdentifier'] = vpc.private_subnets
+
+    # Instance termination protection
+    template['Resources'][tp + 'PlaneLaunchConfig']['Properties']['DisableApiTermination'] = args['disable_termination_protection']
 
     # Instance size
     if args[tp.lower() + '_plane_instance_size']:

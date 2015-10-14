@@ -17,6 +17,8 @@ This cluster consists of a Bastion host running Ubuntu 14.04 and a NAT host runn
 
 The following steps should be done inside the `vpc` directory:
 
+Run `pip install --upgrade -r requirements.txt' to get the aws cli and the crypto python library
+
 Copy `vpc.parameters.json.example` to `vpc.parameters.json` and change any parameters needed. `KeyPair` is essential as it tells CloudFormation what AWS SSH Key to use but can also be used to change the instance sizes
 
 If you need to generate a new ssh key then simply run
@@ -25,7 +27,6 @@ If you need to generate a new ssh key then simply run
 ssh-keygen -q -t rsa -f ~/.ssh/deis-bastion -N '' -C deis-bastion
     aws ec2 import-key-pair --key-name deis-bastion --public-key-material file://~/.ssh/deis-bastion.pub
 ```
-
 
 * `DEIS_BASTION_SSH_KEY` By default `~/.ssh/<keypair>` is matched and uses the keypair name put into the parameters file
 
@@ -44,6 +45,8 @@ Follow the CLI instructions for any additional actions that need to be done.
 With an existing VPC setup (using the steps above or done yourself) in place now it is time to setup Deis.
 
 The following steps should be done in the `cluster` directory:
+
+Run `pip install --upgrade -r requirements.txt' to get the aws cli and the crypto python library
 
 Copy `cluster.parameters.json.example` to `cluster.parameters.json` and change any parameters needed. `KeyPair` is essential as it tells CloudFormation what AWS SSH Key to use but can also be used to change the instance sizes. Right now same instance size is applied to all servers.
 
@@ -171,3 +174,10 @@ If you have generated a template before but somehow lost it or have elected to k
 primary copy with AWS then it is possible to get it back locally by running:
 
 `aws cloudformation get-template --stack-name <stack_name> > my_fancy_production.json`
+
+##### Termination Protection
+
+By default instance termination protection is enabled to prevent accidental terminations.
+
+With the option enabled the stack can not be deleted unless the template is updated to disable the protection.
+This can be disabled with `--disable-instance-termination`.
