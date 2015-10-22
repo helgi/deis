@@ -1,9 +1,10 @@
 import json
 import subprocess
 from collections import OrderedDict
+import base
 
 
-class VPC(object):
+class VPC(base.AWS):
     # So that the user can change profile without setting ENV vars
     id = None
     bastion_id = None
@@ -40,10 +41,17 @@ class VPC(object):
         cmd = """\
             aws ec2 describe-instances \
                 --instance-ids %s \
-                --query 'Reservations[0].Instances[0].{"host": PublicIpAddress, "vpc_id": NetworkInterfaces[0].VpcId, "sg": SecurityGroups[0].GroupId}'
+                --query 'Reservations[0].Instances[0].{ \
+                    "host": PublicIpAddress, \
+                    "vpc_id": NetworkInterfaces[0].VpcId, \
+                    "sg": SecurityGroups[0].GroupId \
+                }'
         """ % bastion_id
         bastion = self.run(cmd)
         bastion = json.loads(bastion)
+        if not bastion:
+            raise Exception('Bastion Instance %s does not exist' % bastion_id)
+
         self.bastion = bastion
         self.id = bastion['vpc_id']
 
@@ -106,17 +114,8 @@ class VPC(object):
                 --filters 'Name=vpc-id,Values=%s,Name=route.gateway-id,Values=%s' \
                 --query 'RouteTables[].Associations[].SubnetId'
         """ % (self.id, self.gateway)
-        subnets = self.run(cmd)
-        subnets = json.loads(subnets)
+        subnets = json.loads(self.run(cmd))
         return subnets
-
-    def run(self, cmd):
-        if self.aws_profile:
-            cmd = "%s --profile %s" % (cmd.strip(), self.aws_profile)
-        data, err = subprocess.Popen(cmd.strip(), shell=True, stdout=subprocess.PIPE).communicate()
-        if err:
-            raise Exception("Command failed: " + err)
-        return data.strip()
 
     # TODO: Gather the IP range people like, such as 10.0.x.y to add missing subnets into
 

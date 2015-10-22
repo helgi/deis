@@ -1,8 +1,18 @@
 #!/usr/bin/env python
 import json
 import os
-import subprocess
 import argparse
+
+# hack since this is not a package
+if __name__ == '__main__':
+    if __package__ is None:
+        from os import path
+        import sys
+        sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
+        from base import AWS
+    else:
+        from ..base import AWS
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--include-private-subnets', dest='include_private_subnets', required=False, default=os.getenv('INCLUDE_PRIVATE_SUBNETS', True), action='store_true')
@@ -14,9 +24,8 @@ CURR_DIR = os.path.dirname(os.path.realpath(__file__))
 template = json.load(open(os.path.join(CURR_DIR, 'vpc.template.json'), 'r'))
 
 if args['include_private_subnets']:
-    cmd = 'aws configure get region --profile %s' % os.getenv('AWS_CLI_PROFILE', 'default')
-    region, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
-    region = region.strip()
+    conn = AWS(os.getenv('AWS_CLI_PROFILE', 'default'))
+    region = conn.run('aws configure get region')
 
     regions = ['us-west-2', 'us-east-1', 'eu-west-1']
     if region not in regions:
@@ -27,31 +36,32 @@ if args['include_private_subnets']:
     bastion = {}
     for region in regions:
         # NAT
-        cmd = """aws ec2 describe-images \
-                --profile %s \
+        cmd = """\
+            aws ec2 describe-images \
                 --region %s \
                 --owners amazon \
                 --filters 'Name=architecture,Values=x86_64' \
                           'Name=block-device-mapping.volume-type,Values=gp2' \
                           'Name=virtualization-type,Values=hvm' \
                           'Name=name,Values=amzn-ami-vpc-nat-hvm-*' \
-                --query 'reverse(sort_by(Images, &CreationDate))[0].ImageId'""" % (os.getenv('AWS_CLI_PROFILE', 'default'), region)
-
-        image, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+                --query 'reverse(sort_by(Images, &CreationDate))[0].ImageId' \
+        """ % region
+        image = conn.run(cmd)
         nat[region] = {"HVM": image.strip("\"\n")}
 
         # Bastion
-        cmd = """aws ec2 describe-images \
-                --profile %s \
+        cmd = """\
+            aws ec2 describe-images \
                 --region %s \
                 --owners 099720109477 \
                 --filters 'Name=architecture,Values=x86_64' \
                           'Name=block-device-mapping.volume-type,Values=gp2' \
                           'Name=virtualization-type,Values=hvm' \
                           'Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-trusty-14.04-amd64-server-*' \
-                --query 'reverse(sort_by(Images, &CreationDate))[0].ImageId'""" % (os.getenv('AWS_CLI_PROFILE', 'default'), region)
+                --query 'reverse(sort_by(Images, &CreationDate))[0].ImageId' \
+        """ % region
 
-        image, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+        image = conn.run(cmd)
         bastion[region] = {"HVM": image.strip("\"\n")}
 
     template['Mappings']['NatAMIs'] = nat
