@@ -16,7 +16,7 @@ if __name__ == '__main__':
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--include-private-subnets', dest='include_private_subnets', required=False, default=os.getenv('INCLUDE_PRIVATE_SUBNETS', True), action='store_true')
-parser.add_argument('--disable-termination-protection', help='Disable instance termination protection. Instances can be accidentally deleted', default=True, action='store_false')
+parser.add_argument('--disable-termination-protection', help='Disable instance termination protection. Instances can be accidentally deleted', default=False, action='store_true')
 args = vars(parser.parse_args())
 
 CURR_DIR = os.path.dirname(os.path.realpath(__file__))
