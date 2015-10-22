@@ -9,7 +9,6 @@ set -e
 THIS_DIR=$(cd $(dirname $0); pwd) # absolute path
 PARENT_DIR=$(dirname $THIS_DIR)
 CONTRIB_DIR=$(dirname $PARENT_DIR)
-USER_DATA_DIR=$THIS_DIR/user-data
 
 source $CONTRIB_DIR/utils.sh
 source $PARENT_DIR/helpers.sh

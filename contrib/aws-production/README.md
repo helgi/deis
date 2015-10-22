@@ -9,6 +9,9 @@ There are 2 directories (cluster & vpc) involved in the setup process that inclu
 
 Note: If you do not want to use your default `aws` cli profile for this setup then set `AWS_CLI_PROFILE` to the appropriate profile
 
+http://docs.deis.io/en/latest/managing_deis/production_deployments/ is a good step by step production deployment with Deis
+that the scripts here codify.
+
 #### Part I: Setting up the Bastion Cluster
 
 Using a Bastion cluster, you can proxy requests from the internet to your Deis cluster and create a VPC that has the appropriate network subnets to accomplish that.

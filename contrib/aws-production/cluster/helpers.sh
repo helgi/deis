@@ -1,6 +1,7 @@
 # Helpers specific to the deis cluster setup / update
 
 check_plane_user_data() {
+    USER_DATA_DIR=$THIS_DIR/user-data
     # Check that the CoreOS user-data file is valid
     for plane in "${planes[@]}"
     do

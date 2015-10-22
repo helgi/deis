@@ -249,8 +249,8 @@ def prepare_user_data(filename, planes=['control', 'data', 'router'], worker=Fal
         dict({'name': 'etcd2.service', 'drop-ins': [{'name': '90-after-etcd-volume.conf', 'content': ETCD_DROPIN}]})
     ]
 
-    # coreos-cloudinit will start the units in order, so we want these to be processed before etcd/fleet
-    # are started
+    # coreos-cloudinit will start the units in order, so we want these to be processed
+    # before etcd/fleet are started
     with open(filename, 'r') as handle:
         data = yaml.safe_load(handle)
         data['coreos']['units'] = new_units + data['coreos']['units']
@@ -359,9 +359,6 @@ available_planes = ['control', 'router', 'data']
 isolated_planes = {}
 
 if args['isolate_router']:
-    # Cleanup thanks to getenv
-    if '' in args['router_plane_colocate']:
-        args['router_plane_colocate'].remove('')
     args['router_plane_colocate'].append('router')
     isolated_planes.update({
         'router': {
@@ -372,9 +369,6 @@ if args['isolate_router']:
     available_planes = diff(available_planes, args['router_plane_colocate'])
 
 if args['isolate_data_plane']:
-    # Cleanup thanks to getenv
-    if '' in args['data_plane_colocate']:
-        args['data_plane_colocate'].remove('')
     args['data_plane_colocate'].append('data')
     isolated_planes.update({
         'data': {
@@ -385,9 +379,6 @@ if args['isolate_data_plane']:
     available_planes = diff(available_planes, args['data_plane_colocate'])
 
 if args['isolate_control_plane']:
-    # Cleanup thanks to getenv
-    if '' in args['control_plane_colocate']:
-        args['control_plane_colocate'].remove('')
     args['control_plane_colocate'].append('control')
     # Make control plane the etcd "owner" if etcd isn't being isolated
     isolated_planes.update({
