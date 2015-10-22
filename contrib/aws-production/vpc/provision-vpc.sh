@@ -57,9 +57,8 @@ DEIS_NUM_TOTAL_INSTANCES=2
 
 # Create an AWS cloudformation stack based on the a generated template
 echo_green "Starting CloudFormation Stack creation"
-TEMPLATE_SOURCING=$(template_source $TEMPLATE)
 aws cloudformation create-stack \
-  $TEMPLATE_SOURCING \
+  $(template_source $TEMPLATE $STACK_NAME) \
   --stack-name $STACK_NAME \
   --parameters "$(<$PARAMETERS_FILE)" \
   --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \

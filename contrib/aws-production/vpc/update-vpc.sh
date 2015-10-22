@@ -47,9 +47,8 @@ DEIS_NUM_TOTAL_INSTANCES=2
 
 # Update the AWS CloudFormation stack
 echo_green "Starting CloudFormation Stack updating"
-TEMPLATE_SOURCING=$(template_source $TEMPLATE)
 aws cloudformation update-stack \
-  $TEMPLATE_SOURCE \
+  $(template_source $TEMPLATE $STACK_NAME) \
   --stack-name $STACK_NAME \
   --parameters "$(<$PARAMETERS_FILE)" \
   --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \

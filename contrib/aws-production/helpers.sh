@@ -8,12 +8,16 @@ fi
 
 template_source() {
     TEMPLATE=$1
+    STACK_NAME=$2
     TEMPLATE_SIZE=$(wc -c < $TEMPLATE)
     TEMPLATE_SOURCING="--template-body file://$TEMPLATE"
     if [ "$TEMPLATE_SIZE" -gt "51200" ]; then
         echo_yellow "Template file exceeds the 51,200 byte AWS CloudFormation limit. Uploading to S3"
 
-        BUCKET=deis-cloudformation-templates
+        # Bucket name length is 63
+        KEY=$(aws configure get aws_access_key_id $EXTRA_AWS_CLI_ARGS)
+        UNIQUE=$(md5 -q -s $KEY$STACK_NAME)
+        BUCKET=deis-cloudformation-templates-$UNIQUE
         if [[ $(aws s3 ls $EXTRA_AWS_CLI_ARGS | grep -v $BUCKET) ]]; then
             aws s3 mb s3://$BUCKET
             echo_green "Made s3 bucket $BUCKET to store the CF templates in"
