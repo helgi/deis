@@ -323,7 +323,7 @@ def add_plane(tp, template, worker=False, planes=[]):
     template['Resources'][tp + 'PlaneAutoScale']['Properties']['VPCZoneIdentifier'] = vpc.private_subnets
 
     # Instance termination protection
-    template['Resources'][tp + 'PlaneLaunchConfig']['Properties']['DisableApiTermination'] = args['disable_termination_protection']
+    #template['Resources'][tp + 'PlaneLaunchConfig']['Properties']['DisableApiTermination'] = args['disable_termination_protection']
 
     # Instance size
     if args[tp.lower() + '_plane_instance_size']:
