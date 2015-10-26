@@ -276,10 +276,7 @@ def prepare_user_data(filename, planes=['control', 'data', 'router'], worker=Fal
     if worker:
         data['coreos']['etcd2']['proxy'] = 'on'
 
-    dump = yaml.dump(data, default_flow_style=False)
-    # Configure etcd to use its EBS volume
-    dump = dump.replace('ETCD_HOST_DATA_DIR=/var/lib/etcd2', 'ETCD_HOST_DATA_DIR=/media/etcd')
-    return dump
+    return yaml.dump(data, default_flow_style=False)
 
 
 def add_user_data(template, namespace, planes=[], worker=False):
