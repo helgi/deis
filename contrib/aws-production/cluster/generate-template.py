@@ -31,6 +31,14 @@ class UniqueAppendAction(argparse.Action):
         unique_values = [set(values)]
         setattr(namespace, self.dest, unique_values)
 
+
+def check_odd_number(value):
+    ivalue = int(value)
+    if not ivalue % 2:
+        raise argparse.ArgumentTypeError("%s is an even number. Only odd numbers are allowed." % value)
+    return ivalue
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--channel', help='the CoreOS channel to use', default='stable')
 parser.add_argument('--version', help='the CoreOS version to use', default='current')
@@ -59,10 +67,10 @@ group.add_argument('--control-plane-colocate',
                    default=[])
 group.add_argument('--control-plane-instances',
                    help='How many control plane instances to start',
-                   type=int, metavar='<count>', default=3)
+                   type=check_odd_number, metavar='<count>', default=3)
 group.add_argument('--control-plane-instances-max',
                    help='How many control plane instances to scale to max',
-                   type=int, metavar='<count>', default=9)
+                   type=check_odd_number, metavar='<count>', default=9)
 group.add_argument('--control-plane-instance-size',
                    help='AWS instance size, otherwise uses default in template',
                    metavar='<instance type>',
@@ -117,11 +125,11 @@ group.add_argument('--isolate-etcd',
 group.add_argument('--etcd-instances',
                    dest="etcd_plane_instances",
                    help='How many etcd mesh instances to start',
-                   type=int, metavar='<count>', default=3)
+                   type=check_odd_number, metavar='<count>', default=3)
 group.add_argument('--etcd-instances-max',
                    dest="etcd_plane_instances_max",
                    help='How many etcd mesh instances to scale to max',
-                   type=int, metavar='<count>', default=9)
+                   type=check_odd_number, metavar='<count>', default=9)
 group.add_argument('--etcd-instance-size',
                    dest="etcd_plane_instance_size",
                    help='AWS instance size, otherwise uses default in template',
