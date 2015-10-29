@@ -18,8 +18,8 @@ template_source() {
         KEY=$(aws configure get aws_access_key_id $EXTRA_AWS_CLI_ARGS)
         UNIQUE=$(md5 -q -s $KEY$STACK_NAME)
         BUCKET=deis-cloudformation-templates-$UNIQUE
-        if [[ $(aws s3 ls $EXTRA_AWS_CLI_ARGS | grep -v $BUCKET) ]]; then
-            aws s3 mb s3://$BUCKET
+        if [[ "$(aws s3 ls $EXTRA_AWS_CLI_ARGS | grep -o $BUCKET)" != "$BUCKET" ]]; then
+            aws s3 mb s3://$BUCKET $EXTRA_AWS_CLI_ARGS
             echo_green "Made s3 bucket $BUCKET to store the CF templates in"
         fi
 
@@ -34,7 +34,7 @@ template_source() {
         echo_green "S3 upload done to s3://$BUCKET/$FILE"
     fi
 
-    echo $TEMPLATE_SOURCING
+    #echo $TEMPLATE_SOURCING
 }
 
 get_sshkey() {

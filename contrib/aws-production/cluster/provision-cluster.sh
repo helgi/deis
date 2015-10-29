@@ -42,15 +42,12 @@ fi
 if [ -z "$2" ]; then
   TMPFILE=$(mktemp /tmp/deis.$STACK_NAME.XXXXXXXXXX)
   # TODO: Cleanup tmpfile on success
-  $THIS_DIR/generate-template.sh > $TMPFILE
+  $THIS_DIR/generate-template.sh $STACK_NAME > $TMPFILE
   TEMPLATE=$TMPFILE
   echo_green "generated template can be found at ${TEMPLATE}"
 else
   TEMPLATE=$2
 fi
-
-# Check that the CoreOS user-data file is valid
-check_plane_user_data
 
 # Create an AWS cloudformation stack based on the a generated template
 echo_green "Starting CloudFormation Stack creation"

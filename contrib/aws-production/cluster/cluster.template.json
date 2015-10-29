@@ -8,12 +8,33 @@
       "MinLength": "1",
       "MaxLength": "64",
       "AllowedPattern" : "[-_ a-zA-Z0-9]*",
+      "Type": "AWS::EC2::KeyPair::KeyName",
       "ConstraintDescription" : "can contain only alphanumeric characters, spaces, dashes and underscores."
     },
     "IamInstanceProfile" : {
       "Description" : "(Optional) Set IAM instance profile for Deis hosts (default: none)",
       "Type" : "String",
       "Default": ""
+    },
+    "VPC" : {
+      "Description" : "VPC ID to provision Deis into",
+      "Type" : "AWS::EC2::VPC::Id",
+      "Default" : ""
+    },
+    "VPCAvailabilityZones" : {
+      "Description" : "Availability Zones for the VPC defined",
+      "Type" : "List<AWS::EC2::AvailabilityZone::Name>",
+      "Default" : ""
+    },
+    "VPCPublicSubnets" : {
+      "Description" : "Public Subnets for the VPC defined",
+      "Type" : "List<AWS::EC2::Subnet::Id>",
+      "Default" : ""
+    },
+    "VPCPrivateSubnets" : {
+      "Description" : "Private Subnets for the VPC defined",
+      "Type" : "List<AWS::EC2::Subnet::Id>",
+      "Default" : ""
     },
     "SSHFrom" : {
       "Description" : "Lockdown SSH access to the Deis hosts (default: can be accessed from anywhere)",
@@ -26,7 +47,7 @@
     },
     "BastionSecurityGroupID" : {
       "Description" : "Lockdown SSH access to bastion server",
-      "Type" : "String",
+      "Type" : "AWS::EC2::SecurityGroup::Id",
       "MinLength" : "1",
       "MaxLength" : "11",
       "Default" : "",
@@ -130,6 +151,7 @@
 
   "Mappings" : {
     "CoreOSAMIs" : {},
+    "VPCSubnets" : {},
     "RootDevices" : {
       "HVM" : { "Name": "/dev/xvda" },
       "PV"  : { "Name": "/dev/sda" }
@@ -148,6 +170,41 @@
   },
 
   "Resources" : {
+    "DNS" : {
+      "Type": "AWS::Route53::HostedZone",
+      "Properties": {
+        "HostedZoneConfig": {
+          "Comment": "Private DNS for etcd cluster"
+        },
+        "Name": { "Fn::Join" : [ "", [ "etcd-", { "Ref": "AWS::StackName" }, ".internal." ] ] },
+        "VPCs": [{
+          "VPCId": { "Ref" : "VPC" },
+          "VPCRegion": { "Ref" : "AWS::Region" }
+        }],
+        "HostedZoneTags" : [{
+          "Key": "Name",
+          "Value": "etcd"
+        }]
+      }
+    },
+
+    "etcdInternalDNS" : {
+      "Type" : "AWS::Route53::RecordSetGroup",
+      "Properties" : {
+        "HostedZoneName" : { "Fn::Join" : [ "", [ "etcd-", { "Ref": "AWS::StackName" }, ".internal." ] ] },
+        "Comment" : "DNS for etcd cluster.",
+        "RecordSets" : [
+          {
+            "Name" : { "Fn::Join" : [ "", [ "_etcd-server._tcp.", "etcd-", { "Ref": "AWS::StackName" }, ".internal." ] ] },
+            "Type" : "SRV",
+            "TTL" : "20",
+            "ResourceRecords" : []
+          }
+        ]
+      },
+      "DependsOn" : ["DNS"]
+    },
+
     "DeisWebELB": {
       "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
       "Properties": {
@@ -159,11 +216,7 @@
           "Timeout": "5",
           "UnhealthyThreshold": "2"
         },
-        "Subnets": [
-          { "Ref" : "Subnet1" },
-          { "Ref" : "Subnet2" },
-          { "Ref" : "Subnet3" }
-        ],
+        "Subnets": { "Ref" : "VPCPublicSubnets" },
         "Policies" : [{
            "PolicyName" : "EnableProxyProtocol",
            "PolicyType" : "ProxyProtocolPolicyType",
@@ -200,7 +253,8 @@
         ],
         "ConnectionSettings": {
           "IdleTimeout": 1200
-        }
+        },
+        "Instances" : []
       }
     },
     "DeisWebELBSecurityGroup": {

@@ -57,8 +57,9 @@ DEIS_NUM_TOTAL_INSTANCES=2
 
 # Create an AWS cloudformation stack based on the a generated template
 echo_green "Starting CloudFormation Stack creation"
+template_source $TEMPLATE $STACK_NAME
 aws cloudformation create-stack \
-  $(template_source $TEMPLATE $STACK_NAME) \
+  $TEMPLATE_SOURCING \
   --stack-name $STACK_NAME \
   --parameters "$(<$PARAMETERS_FILE)" \
   --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \
@@ -95,14 +96,12 @@ aws ec2 describe-instances \
 # This can't go into cloud-init; SSH becomes unavailable if dropped too early
 ssh_copy "$THIS_DIR/ssh_agent.sh" "~/.ssh/rc"
 
-BASTION_ID=$(
-  aws ec2 describe-instances \
-    --max-items 1 \
-    --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running Name=tag:Name,Values=bastion \
-    --query "Reservations[].Instances[].[InstanceId]" \
-    --output text \
-    $EXTRA_AWS_CLI_ARGS
-)
+BASTION_ID=$(aws ec2 describe-instances \
+                --max-items 1 \
+                --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running Name=tag:Name,Values=bastion \
+                --query "Reservations[].Instances[].[InstanceId]" \
+                --output text \
+                $EXTRA_AWS_CLI_ARGS)
 
 echo_green "\nBastion Instance ID is: $BASTION_ID"
 echo_green "Run the following before moving on to the Deis Cluster setup"

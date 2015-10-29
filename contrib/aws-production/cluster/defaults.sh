@@ -24,7 +24,6 @@ unset_plane() {
 
 # Figure out which planes need to be verified user-data wise
 available_planes=(control data router)
-planes=()
 
 # Figure out how many instances need to be monitored - Start with no instance to check on
 DEIS_NUM_TOTAL_INSTANCES=0
@@ -51,7 +50,6 @@ if [ -n "$DEIS_ISOLATE_CONTROL_PLANE" ]; then
 
   let DEIS_NUM_TOTAL_INSTANCES=DEIS_NUM_TOTAL_INSTANCES+DEIS_NUM_CONTROL_PLANE_INSTANCES
 
-  planes+=(control)
   unset available_planes[0]
 
   if [ -z "$DEIS_ISOLATE_CONTROL_PLANE" ]; then
@@ -85,7 +83,6 @@ if [ -n "$DEIS_ISOLATE_DATA_PLANE" ]; then
 
   let DEIS_NUM_TOTAL_INSTANCES=DEIS_NUM_TOTAL_INSTANCES+DEIS_NUM_DATA_PLANE_INSTANCES
 
-  planes+=(data)
   unset available_planes[1]
 
   if [ -z "$DEIS_DATA_PLANE_COLOCATE" ]; then
@@ -119,7 +116,6 @@ if [ -n "$DEIS_ISOLATE_ROUTER_MESH" ]; then
 
   let DEIS_NUM_TOTAL_INSTANCES=DEIS_NUM_TOTAL_INSTANCES+DEIS_NUM_ROUTER_MESH_INSTANCES
 
-  planes+=(router)
   unset available_planes[2]
 
   if [ -z "$DEIS_ROUTER_MESH_COLOCATE" ]; then
@@ -152,7 +148,6 @@ if [ -n "$DEIS_ISOLATE_ETCD" ]; then
   fi
 
   let DEIS_NUM_TOTAL_INSTANCES=DEIS_NUM_TOTAL_INSTANCES+DEIS_NUM_ETCD_INSTANCES
-  planes+=(etcd)
 else
   DEIS_ISOLATE_ETCD=false
 fi

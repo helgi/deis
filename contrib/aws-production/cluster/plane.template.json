@@ -2,16 +2,8 @@
     "PlaneAutoScale": {
       "Type": "AWS::AutoScaling::AutoScalingGroup",
       "Properties": {
-        "AvailabilityZones": [
-          { "Fn::GetAtt" : [ "Subnet1", "AvailabilityZone" ] },
-          { "Fn::GetAtt" : [ "Subnet2", "AvailabilityZone" ] },
-          { "Fn::GetAtt" : [ "Subnet3", "AvailabilityZone" ] }
-        ],
-        "VPCZoneIdentifier": [
-          { "Ref" : "Subnet1" },
-          { "Ref" : "Subnet2" },
-          { "Ref" : "Subnet3" }
-        ],
+        "AvailabilityZones": { "Ref" : "VPCAvailabilityZones" },
+        "VPCZoneIdentifier": { "Ref" : "VPCPrivateSubnets" },
         "LaunchConfigurationName": {"Ref": "PlaneLaunchConfig"},
         "MinSize": {"Ref": "PlaneSize"},
         "MaxSize": "",
@@ -25,7 +17,6 @@
       "Type": "AWS::AutoScaling::LaunchConfiguration",
       "Properties": {
         "ImageId" : { "Fn::FindInMap" : [ "CoreOSAMIs", { "Ref" : "AWS::Region" }, { "Ref" : "EC2VirtualizationType" }]},
-        "DisableApiTermination" : "true",
         "InstanceType": {"Ref": "InstanceType"},
         "IamInstanceProfile" : {
           "Fn::If" : [

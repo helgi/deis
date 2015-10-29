@@ -1,14 +1,5 @@
 # Helpers specific to the deis cluster setup / update
 
-check_plane_user_data() {
-    USER_DATA_DIR=$THIS_DIR/user-data
-    # Check that the CoreOS user-data file is valid
-    for plane in "${planes[@]}"
-    do
-        $CONTRIB_DIR/util/check-user-data.sh $USER_DATA_DIR/$plane-plane-user-data
-    done
-}
-
 get_elb_info() {
     # Get ELB public DNS name through cloudformation
     ELB_DNS_NAME=$(

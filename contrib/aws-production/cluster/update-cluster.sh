@@ -37,16 +37,13 @@ fi
 
 if [ -z "$2" ]; then
     TMPFILE=$(mktemp /tmp/deis.$STACK_NAME.XXXXXXXXXX)
-    $($THIS_DIR/generate-template.sh "updating") > $TMPFILE
+    $THIS_DIR/generate-template.sh $STACK_NAME > $TMPFILE
     # TODO: Cleanup tmpfile on success
     TEMPLATE=$TMPFILE
     echo_green "generated template can be found at ${TEMPLATE}"
 else
     TEMPLATE=$2
 fi
-
-# Check that the CoreOS user-data file is valid
-check_plane_user_data
 
 # update the AWS CloudFormation stack
 echo_green "Starting CloudFormation Stack updating"

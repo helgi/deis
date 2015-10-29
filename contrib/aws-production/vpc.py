@@ -14,6 +14,7 @@ class VPC(base.AWS):
     zones = []
     subnets = []
     private_subnets = []
+    mapping = {}
 
     def __init__(self, vpc_id, bastion_id, aws_profile):
         self.id = vpc_id
@@ -57,6 +58,21 @@ class VPC(base.AWS):
 
         return bastion
 
+    def get_instance(self, instance_id):
+        cmd = """\
+            aws ec2 describe-instances \
+                --max-items 1 \
+                --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running Name=tag:Name,Values=%s \
+                --query 'Reservations[].Instances[0]'
+        """ % instance_id
+
+        instance = json.loads(self.run(cmd))
+        if not instance:
+            return False
+
+        return instance[0]
+
+
     # Get the internet gateway for the VPC
     def discover_gateway(self):
         if self.gateway:
@@ -89,20 +105,18 @@ class VPC(base.AWS):
                 data[zone] = {}
 
             # False means private, True means public
-            public = True if subnet in public_subnets else False
-            data[zone][subnet] = public
+            subtype = 'public' if subnet in public_subnets else 'private'
+            data[zone][subtype] = subnet
 
         # dictionary sorted by key
         data = OrderedDict(sorted(data.items(), key=lambda t: t[0]))
+        self.mapping = data
 
         # Populate data structures
         for zone, subnets in data.iteritems():
             self.zones.append(zone)
-            for subnet, public in subnets.iteritems():
-                if public:
-                    self.subnets.append(subnet)
-                else:
-                    self.private_subnets.append(subnet)
+            self.subnets.append(subnets['public'])
+            self.private_subnets.append(subnets['private'])
 
         return data
 

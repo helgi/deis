@@ -8,9 +8,6 @@ source $THIS_DIR/defaults.sh
 
 # Check for AWS API tools in $PATH
 check_aws
+STACK_NAME=$1
 
-if [ "$1" == 'updating' ]; then
-  GEN_ARGS+=' --updating'
-fi
-
-$THIS_DIR/generate-template.py $GEN_ARGS --channel $COREOS_CHANNEL --version $COREOS_VERSION
+$THIS_DIR/generate-template.py $GEN_ARGS --stack $STACK_NAME --channel $COREOS_CHANNEL --version $COREOS_VERSION

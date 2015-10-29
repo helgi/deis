@@ -8,6 +8,7 @@
       "MinLength": "1",
       "MaxLength": "64",
       "AllowedPattern" : "[-_ a-zA-Z0-9]*",
+      "Type": "AWS::EC2::KeyPair::KeyName",
       "ConstraintDescription" : "can contain only alphanumeric characters, spaces, dashes and underscores."
     },
     "IamInstanceProfile" : {

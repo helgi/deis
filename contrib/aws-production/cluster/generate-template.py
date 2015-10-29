@@ -4,9 +4,9 @@ import json
 import os
 import urllib2
 import yaml
-import subprocess
 import sys
 import shutil
+import random
 
 # hack since this is not a package
 if __name__ == '__main__':
@@ -42,8 +42,8 @@ def check_odd_number(value):
 parser = argparse.ArgumentParser()
 parser.add_argument('--channel', help='the CoreOS channel to use', default='stable')
 parser.add_argument('--version', help='the CoreOS version to use', default='current')
-parser.add_argument('--updating', help='Indicates template is in update mode and does not make a new discovery url', action='store_true')
-parser.add_argument('--disable-termination-protection', help='Disable instance termination protection. Instances can be accidentally deleted', default=False, action='store_true')
+parser.add_argument('--stack', help='Name of the stack being setup', required=True)
+parser.add_argument('--disable-termination-protection', help='Disable instance termination protection for the cluster that has etcd on it. Instances can be accidentally deleted', default=False, action='store_true')
 
 parser.add_argument('--aws-profile', help='Sets which AWS Profile configured in the AWS CLI to use',
                     metavar="<profile>", default=os.getenv("AWS_CLI_PROFILE"))
@@ -216,22 +216,13 @@ ETCD_DROPIN = '''
   After=prepare-etcd-data-directory.service
 '''
 
+# etcd domain
+domain = 'etcd-%s.internal' % args['stack']
 
 # Diffs a list
 def diff(a, b):
     b = set(b)
     return [aa for aa in a if aa not in b]
-
-
-def discovery_url():
-    # Ensure the cluster has the latest user-data
-    os.chdir(os.path.realpath(os.path.join(CURR_DIR, '..', '..', '..')))  # Just to get to the deis root
-    cmd = "make discovery-url"
-    _, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
-    if err:
-        print err
-        raise
-    os.chdir(CURR_DIR)
 
 
 def coreos_amis(channel, version):
@@ -245,7 +236,7 @@ def coreos_amis(channel, version):
     return dict(map(lambda n: (n['name'], dict(PV=n['pv'], HVM=n['hvm'])), amis['amis']))
 
 
-def prepare_user_data(filename, planes=['control', 'data', 'router'], worker=False):
+def prepare_user_data(filename, etcd_cluster, planes=['control', 'data', 'router'], worker=False, name=''):
     # Define units that are going to be added to the default coreos user-data
     new_units = [
         dict({'name': 'format-docker-volume.service', 'command': 'start', 'content': FORMAT_DOCKER_VOLUME}),
@@ -280,37 +271,104 @@ def prepare_user_data(filename, planes=['control', 'data', 'router'], worker=Fal
     else:
         data['coreos']['fleet']['metadata'] = ','.join(p)
 
+    # Ditch the discovery url
+    del data['coreos']['etcd2']['discovery']
+
     # if etcd should be in proxy mode
     if worker:
         data['coreos']['etcd2']['proxy'] = 'on'
+    else:
+        # Figure out if joining existing cluster or creating a new one
+        tag = '%s-node-%s' % (etcd_cluster, name)
+        first = '%s-node-%s' % (etcd_cluster, 1)  # Check if the first node exists
+        if vpc.get_instance(first) and not vpc.get_instance(tag):
+            etcd_state = 'existing'
+        else:
+            etcd_state = 'new'
+
+        data['coreos']['etcd2']['name'] = "node-%s" % name
+        data['coreos']['etcd2']['initial-cluster-state'] = etcd_state
+        data['coreos']['etcd2']['initial-cluster-token'] = args['stack']
+        data['coreos']['etcd2']['initial-advertise-peer-urls'] = 'http://node-%s.%s:2380' % (name, domain)
+        data['coreos']['etcd2']['advertise-client-urls'] = 'http://node-%s.%s:2379' % (name, domain)
+
+    # Advertise all the peers via SRV records
+    data['coreos']['etcd2']['discovery-srv'] = domain
 
     return yaml.dump(data, default_flow_style=False)
 
 
-def add_user_data(template, namespace, planes=[], worker=False):
+def user_data(namespace, etcd_cluster, planes=[], worker=False, name=''):
     # Copy coreos user-data over
+    coreos_userdata_example = os.path.realpath(os.path.join(CURR_DIR, '..', '..', 'coreos', 'user-data.example'))
     coreos_userdata = os.path.realpath(os.path.join(CURR_DIR, '..', '..', 'coreos', 'user-data'))
+    shutil.copy2(coreos_userdata_example, coreos_userdata)
     final_userdata = os.path.join(CURR_DIR, 'user-data', namespace.lower() + '-plane-user-data')
     shutil.copy2(coreos_userdata, final_userdata)
 
     # Prepare the user_data and decorate with new thing as needed
-    data = prepare_user_data(final_userdata, planes, worker)
+    data = prepare_user_data(final_userdata, etcd_cluster, planes, worker, name)
+    return ["\n", ["#cloud-config", "---"] + data.split("\n")]
 
-    header = ["#cloud-config", "---"]
-    user_data = ["\n", header + data.split("\n")]
-    template[namespace + 'PlaneLaunchConfig']['Properties']['UserData']['Fn::Base64']['Fn::Join'] = user_data
+
+def add_static_plane(tp, template, etcd_cluster, planes, azs):
+    global elb_allocated  # This is nasty
+    for i in range(1, (args[tp.lower() + '_plane_instances']+1)):
+        instance = json.loads(open(os.path.join(CURR_DIR, 'instance.template.json'), 'r').read())
+        if args[tp.lower() + '_plane_instance_size']:
+            instance['Properties']['InstanceType'] = args[tp.lower() + '_plane_instance_size']
+
+        # Pick the AZ - needed due to CF not exposing this properly for none ASG creation
+        tag = '%s-node-%s' % (etcd_cluster, i)
+        data = vpc.get_instance(tag)
+        if data:
+            az = data['Placement']['AvailabilityZone']
+        else:
+            az = random.choice(azs)
+
+        instance["Properties"]["AvailabilityZone"] = az
+        instance["Properties"]["NetworkInterfaces"][0]["SubnetId"] = {"Fn::FindInMap": ["VPCSubnets", az, "private"]}
+
+        node = "node-%s" % i
+        instance['Properties']['UserData']['Fn::Base64']['Fn::Join'] = user_data(tp, etcd_cluster, planes, False, i)
+        instance['Properties']['Tags'] = [{'Key': 'Name', 'Value': tag}, {'Key': 'etcd', 'Value': 'true'}]
+        if args['disable_termination_protection']:
+            instance['Properties']['DisableApiTermination'] = False
+
+        name = 'Etcd%sInstance' % i
+        template['Resources'][name] = instance
+
+        dns = open(os.path.join(CURR_DIR, 'dns_record.template.json'), 'r').read()
+        dns = dns.replace('EtcdInstance', name)
+        dns_record = json.loads(dns)
+        dns_record['Name'] = "%s.%s" % (node, domain)
+        template['Resources']['etcdInternalDNS']['Properties']['RecordSets'].append(dns_record)
+        template['Resources']['etcdInternalDNS']['DependsOn'].append(name)
+
+        # Setup the SRV record properly
+        # see https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#SRVFormat
+        template['Resources']['etcdInternalDNS']['Properties']['RecordSets'][0]['ResourceRecords'].append("0 0 2380 node-%s.%s" % (i, domain))
+
+    if not elb_allocated and 'router' in planes:
+        # Whatever plane serves the traffic needs this. Works differently than ASGs
+        elb_allocated = True
+        for i in range(1, (args[tp.lower() + '_plane_instances']+1)):
+            template['Resources']['DeisWebELB']['Properties']['Instances'].append({"Ref": 'Etcd%sInstance' % i})
+
     return template
 
 
-def add_plane(tp, template, worker=False, planes=[]):
+# Adds an auto scaling group with all the right user data and sizes
+def add_plane(tp, template, etcd_cluster, worker=False, planes=[]):
     global elb_allocated  # This is nasty
     tp = tp.capitalize()
 
     plane = open(os.path.join(CURR_DIR, 'plane.template.json'), 'r').read()
     plane = plane.replace('Plane', tp + 'Plane').replace('deis-plane-node', 'deis-%s-plane-node' % tp.lower())
     plane = json.loads(plane)
+    plane[tp + 'PlaneLaunchConfig']['Properties']['UserData']['Fn::Base64']['Fn::Join'] = user_data(tp, etcd_cluster, planes, worker)
+    template['Resources'].update(plane)
 
-    template['Resources'].update(add_user_data(plane, tp, planes, worker))
     min_instances = args[tp.lower() + '_plane_instances']
     max_instances = args[tp.lower() + '_plane_instances_max']
     template['Parameters'][tp + 'PlaneSize'] = {
@@ -322,13 +380,6 @@ def add_plane(tp, template, worker=False, planes=[]):
 
     # Can't do this via Parameters
     template['Resources'][tp + 'PlaneAutoScale']['Properties']['MaxSize'] = max_instances
-
-    # Update subnets and zones
-    template['Resources'][tp + 'PlaneAutoScale']['Properties']['AvailabilityZones'] = vpc.zones
-    template['Resources'][tp + 'PlaneAutoScale']['Properties']['VPCZoneIdentifier'] = vpc.private_subnets
-
-    # Instance termination protection
-    #template['Resources'][tp + 'PlaneLaunchConfig']['Properties']['DisableApiTermination'] = args['disable_termination_protection']
 
     # Instance size
     if args[tp.lower() + '_plane_instance_size']:
@@ -342,21 +393,6 @@ def add_plane(tp, template, worker=False, planes=[]):
         ]
 
     return template
-
-
-vpc = VPC(args['vpc_id'], args['bastion_id'], args['aws_profile'])
-vpc.discover()
-# Overwrite in case the user had specific opinions vs what's discovered
-if args['vpc_zones']:
-    vpc.zones = args['vpc_zones']
-if args['vpc_private_subnets']:
-    vpc.private_subnets = args['vpc_private_subnets']
-if args['vpc_subnets']:
-    vpc.subnets = args['vpc_subnets']
-
-if not args['updating']:
-    # Create a new discovery URL
-    discovery_url()
 
 # Figure out what goes where
 elb_allocated = False  # downside is this will go to the first router seen
@@ -419,19 +455,40 @@ if len(isolated_planes) == 1:
 # Seed in the base template
 template = json.load(open(os.path.join(CURR_DIR, 'cluster.template.json'), 'r'))
 
+# Get all the VPC information
+vpc = VPC(args['vpc_id'], args['bastion_id'], args['aws_profile'])
+vpc.discover()
+# Overwrite in case the user had specific opinions vs what's discovered
+if args['vpc_zones']:
+    vpc.zones = args['vpc_zones']
+if args['vpc_private_subnets']:
+    vpc.private_subnets = args['vpc_private_subnets']
+if args['vpc_subnets']:
+    vpc.subnets = args['vpc_subnets']
+
+# Set VPC information by abusing Parametersa little bit
+template['Parameters']['VPC']['Default'] = vpc.id
+template['Parameters']['VPCAvailabilityZones']['Default'] = ','.join(vpc.zones)
+template['Parameters']['VPCPublicSubnets']['Default'] = ','.join(vpc.subnets)
+template['Parameters']['VPCPrivateSubnets']['Default'] = ','.join(vpc.private_subnets)
+template['Mappings']['VPCSubnets'] = vpc.mapping
+
+# Figure out where etcd is
+etcd = ''
+for plane, info in isolated_planes.items():
+    if not info['worker']:
+        etcd = plane
+
 # Setup each plane
 for plane, info in isolated_planes.items():
-    template = add_plane(plane, template, info['worker'], info['planes'])
+    if info['worker']:
+        template = add_plane(plane, template, etcd, info['worker'], info['planes'])
+    else:
+        # setting up a etcd cluster, can't be ASG
+        template = add_static_plane(plane, template, etcd, info['planes'], vpc.zones)
 
 # Add in the AMIs
 template['Mappings']['CoreOSAMIs'] = coreos_amis(args['channel'], args['version'])
-
-# Update VpcId fields
-template['Resources']['DeisWebELBSecurityGroup']['Properties']['VpcId'] = vpc.id
-template['Resources']['CoreOSSecurityGroup']['Properties']['VpcId'] = vpc.id
-
-# Update subnets and zones
-template['Resources']['DeisWebELB']['Properties']['Subnets'] = vpc.subnets
 
 # Update ingress to the cluster based on whether a bastion server is being used
 if args['bastion_id']:

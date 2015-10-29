@@ -1,0 +1,8 @@
+{
+  "Name" : "",
+  "Type" : "A",
+  "TTL" : "15",
+  "ResourceRecords" : [
+    { "Fn::GetAtt" : [ "EtcdInstance", "PrivateIp" ] }
+  ]
+}
