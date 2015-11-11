@@ -28,7 +28,7 @@ If you need to generate a new ssh key then simply run
 
 ```
 ssh-keygen -q -t rsa -f ~/.ssh/deis-bastion -N '' -C deis-bastion
-    aws ec2 import-key-pair --key-name deis-bastion --public-key-material file://~/.ssh/deis-bastion.pub
+aws ec2 import-key-pair --key-name deis-bastion --public-key-material file://~/.ssh/deis-bastion.pub
 ```
 
 * `DEIS_BASTION_SSH_KEY` By default `~/.ssh/<keypair>` is matched and uses the keypair name put into the parameters file
@@ -37,7 +37,7 @@ Or follow http://docs.deis.io/en/latest/installing_deis/aws/ for more informatio
 
 Now run `./provision-vpc.sh` to provision and sit on your hands for a little bit.
 
-Additional arguements are: <stack-name> and <template> (see bottom of the document for information on how to generate templates)
+Additional arguements are: `<stack-name>` and `<template>` (see bottom of the document for information on how to generate templates)
 
 Follow the CLI instructions for any additional actions that need to be done.
 
@@ -62,18 +62,20 @@ aws ec2 import-key-pair --key-name deis --public-key-material file://~/.ssh/deis
 
 Or follow http://docs.deis.io/en/latest/installing_deis/aws/ for more information
 
+* `DEIS_SSH_KEY` By default `~/.ssh/<keypair>` is matched and uses the keypair name put into the parameters file
+
 The Deis cluster can be launched into an existing VPC, be it the one created with the bastion setup above or one of your own making then some information bits need to be provided.
 
-`BASTION_ID` is needed if you have chosen to go down the bastion host route- This is needed to configure various pieces of the Deis platform if behind the bestion host.
+`BASTION_ID` is needed if you have chosen to go down the bastion host route - This is needed to configure various pieces of the Deis platform if behind the bestion host.
 Setting this will auto discover the `VPC_ID` for you.
 
 If you are provisioning into an existing VPC setup without a Bastion Host then the following applies:
-Possible ENV vars that can be set, with `VPC_ID` being the only required one. The rest are auto discovered unless particular one should be set differently by hand
+Possible ENV vars that can be set, with `VPC_ID` being the only required one. The rest are auto discovered unless particular values are needed instead of all available.
 
 ```
 export VPC_ID=vpc-02ca8d67
 export VPC_ZONES="us-west-2a us-west-2b us-west-2c"
-export VPC_SUBNETS="subnet-9f5b0ffa subnet-d41c76a3 subnet-1e54d847
+export VPC_SUBNETS="subnet-9f5b0ffa subnet-d41c76a3 subnet-1e54d847"
 export VPC_PRIVATE_SUBNETS="subnet-9c5b0ff9 subnet-d51c76a2 subnet-1154d848"
 ```
 
@@ -90,8 +92,7 @@ Isolation is explained at
 
 There are two ways to configure a cluster, configuring ENV vars on the system or generating a template a head of time and feeding that into the provision script.
 
-* `python generate-template.py --help` will give you all the available options (beaware, there are a lot of options)
-* See the bottom for all availble ENV options
+`./generate-template.py --help` will give you all the available optionsm including ENV vars (beaware, there are a lot of options)
 
 Here is how to isolate the data plane into its own autoscaling group but also colocate the router with 6 minimum instances, using ENV vars
 
@@ -105,62 +106,78 @@ Now you can run
 
 `./provision-cluster.sh isolation`
 
-And voila. Magic.
-
-##### Available ENV vars to configure Deis
-
-* `DEIS_SSH_KEY` By default `~/.ssh/<keypair>` is matched and uses the keypair name put into the parameters file
-
-###### Control Plane
-* `DEIS_ISOLATE_CONTROL_PLANE` (Creates an AutoScale Group for the Control Plane)
-* `DEIS_NUM_CONTROL_PLANE_INSTANCES` (Minimum servers in the AutoScale group)
-* `DEIS_NUM_CONTROL_PLANE_INSTANCES_MAX` (Max servers in the AutoScale group)
-* `DEIS_CONTROL_PLANE_INSTANCE_SIZE` (AWS instance size, otherwise default)
-* `DEIS_COLOCATE_CONTROL_PLANE` (Colocates other planes on the same ASG.
-	* Available options are router and data. Has to be passed in with a space separated. Example: `export DEIS_ISOLATE_CONTROL_PLANE=router data`
-
-###### Data Plane
-* `DEIS_ISOLATE_DATA_PLANE`
-* `DEIS_NUM_DATA_PLANE_INSTANCES` (Minimum servers in the AutoScale group)
-* `DEIS_NUM_DATA_PLANE_INSTANCES_MAX` (Max servers in the AutoScale group)
-* `DEIS_DATA_PLANE_INSTANCE_SIZE` (AWS instance size, otherwise default)
-* `DEIS_COLOCATE_DATA_PLANE` (Colocates other planes on the same ASG.
-	* Available options are control and router. Has to be passed in with a space separated. Example: `export DEIS_ISOLATE_DATA_PLANE=control router`
-
-###### Router Mesh
-* `DEIS_ISOLATE_ROUTER_MESH`
-* `DEIS_NUM_ROUTER_MESH_INSTANCES` (Minimum servers in the AutoScale group)
-* `DEIS_NUM_ROUTER_MESH_INSTANCES_MAX` (Max servers in the AutoScale group)
-* `DEIS_ROUTER_MESH_INSTANCE_SIZE` (AWS instance size, otherwise default)
-* `DEIS_COLOCATE_ROUTER_MESH` (Colocates other planes on the same ASG.
-	* Available options are control and data. Has to be passed in with a space separated. Example: `export DEIS_ISOLATE_CONTROL_PLANE=control data`
-
-###### etcd
-
-etcd is on the Control Plane if it is not configured to be isolated
-
-* `DEIS_ISOLATE_ETCD` (Creats an AutoScale Group for etcd)
-* `DEIS_NUM_ETCD_INSTANCES` (Minimum servers in the AutoScale group)
-* `DEIS_NUM_ETCD_INSTANCES_MAX` (Max servers in the AutoScale group)
-* `DEIS_ETCD_INSTANCE_SIZE` (AWS instance size, otherwise default)
-
-###### Other Plane
-
-Items that are not isolated **or** colocated on other servers goes to the **Other** plane
-
-* `DEIS_NUM_INSTANCES` (Minimum servers in the AutoScale group)
-* `DEIS_NUM_INSTANCES_MAX` (Max servers in the AutoScale group)
-* `DEIS_INSTANCE_SIZE` (AWS instance size, otherwise default)
+And voila. Magic. A CloudFormation stack named `isolation`.
 
 #### Updating Deis Cluster
 
 Using the update script functions much as the provisioning script. Either pass in a new template or set all the appropriate ENV variables, to change the amount of servers, instance sizes or any other pieces and then run
 
-`./update-cluster.sh cluster-name template.json` (omit any argument that you do not need)
+`./update-cluster.sh cluster-name template.json`
+
+Additional arguements are: `<stack-name>` and `<template>` (see bottom of the document for information on how to generate templates)
 
 This will kick off a CloudFormation update and AWS will start converging your cluster to match up.
 
 *Note:* Scaling down will bring down servers and can cause instability, be careful with that.
+
+#### etcd management
+
+etcd is bootstrapped using DNS Discovery (https://github.com/coreos/etcd/blob/master/Documentation/clustering.md#dns-discovery) oppose to the usual Discovery URL.
+This will harden the setup against problems bringing up new `etcd` members in the future as Discovery URLs expire.
+
+To achieve this a Private Hosted Zone (not published outside of your VPC) is created using Route 53 and a `SRV` record is created for bootstrapping the cluster.
+Each `etcd` member gets its own DNS A record that is then reflected in the master `SRV` record.
+
+The cluster `etcd` is deployed on is *static*, not an AutoScaling Group. This is done so there are no surprise termination / additions of servers, which can leave `etcd` in a bad state.
+
+Useful commands to run to ensure the health of your `etcd` cluster include:
+
+* `etcdctl member list`
+* `etcdctl cluster-health`
+
+It's recommended to run those before / after any destructive operations that are done to the cluster.
+
+A good matrix is available at https://github.com/coreos/etcd/blob/master/Documentation/admin_guide.md#optimal-cluster-size to see what fault tolerance can be from the various cluster sizes.
+
+##### Add member
+
+Update the instance count (see instructions above on configuration) and run `./update-cluster.sh` to provision all the new servers and update the DNS SRV record.
+
+If you have `3` nodes and are moving to `5` nodes than you will get `node-4` and `node-5` in `etcd`
+
+To add the members log into the cluster and run:
+
+* `etcdctl member add node-4 http://node-4.etcd-$STACK_NAME.internal`
+* `etcdctl member add node-5 http://node-5.etcd-$STACK_NAME.internal`
+
+Now you can run `etcdctl member list` and then `etcdctl cluster-health` to verify the addition went smoothly
+
+##### Remove member
+
+Update the instance count (see instructions above on configuration) and run `./update-cluster.sh` to remove and update the DNS SRV record.
+
+If you have `5` nodes and are moving to `3` nodes than you will get `node-4` and `node-5` removed.
+
+**NOTE**: Instance Termination Protection is enabled by default for the etcd cluster. This has to be disabled on those nodes prior to running `update-cluster.sh`, otherwise the update will fail.
+
+To see what members are available run `etcdctl member list` and pay attention to the `member-id` at the start of each line. Locate the nodes that have been removed and run the following for each node being removed:
+
+* `etcdctl member remove <member-id>`
+
+Now you can run `etcdctl member list` and then `etcdctl cluster-health` to verify the addition went smoothly
+
+
+##### Replacing members
+
+Sometimes you will want to replace members, due to wanting a bigger instance or generally refreshing the setup.
+This can get a little tricky due to CloudFormation automation not having a notion of what's new vs existing resource so we need to be more careful during this operation otherwise the cluster can get into a bad state.
+
+
+
+
+
+
+https://github.com/coreos/etcd/blob/master/Documentation/admin_guide.md#optimal-cluster-size
 
 #### Generating a CF Template for the Deis Cluster
 
