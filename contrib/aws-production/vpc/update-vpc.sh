@@ -17,7 +17,7 @@ source $PARENT_DIR/helpers.sh
 check_aws
 
 # Figure out if there is a cluster param file
-PARAMETERS_FILE=$THIS_DIR/vpc.parameters.json
+PARAMETERS_FILE=$THIS_DIR/parameters.json
 if [ ! -f $PARAMETERS_FILE ]; then
     echo_red "Can not locate $(basename $PARAMETERS_FILE)"
     exit 1
@@ -42,22 +42,6 @@ else
     TEMPLATE=$2
 fi
 
-# Template has 2 instances
-DEIS_NUM_TOTAL_INSTANCES=2
-
-# Update the AWS CloudFormation stack
-echo_green "Starting CloudFormation Stack updating"
-template_source $TEMPLATE $STACK_NAME
-aws cloudformation update-stack \
-  $TEMPLATE_SOURCING \
-  --stack-name $STACK_NAME \
-  --parameters "$(<$PARAMETERS_FILE)" \
-  --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \
-  $EXTRA_AWS_CLI_ARGS
-
-# Loop until stack update is complete
-stack_progress $STACK_NAME 'UPDATE'
-
-echo_green "\nYour Deis VPC on AWS CloudFormation has been successfully updated.\n"
+update_stack
 
 aws --output text cloudformation describe-stacks --stack-name $STACK_NAME

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import configargparse
 import argparse
 import json
 import os
@@ -20,9 +21,9 @@ if __name__ == '__main__':
 CURR_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
-def get_instance_sizes():
+def get_instance_types():
     # Seed in the base template
-    template = json.load(open(os.path.join(CURR_DIR, 'cluster.template.json'), 'r'))
+    template = json.load(open(os.path.join(CURR_DIR, 'template.json'), 'r'))
     return template['Parameters']['InstanceType']['AllowedValues']
 
 
@@ -39,27 +40,36 @@ def check_odd_number(value):
     return ivalue
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--channel', help='the CoreOS channel to use', default='stable')
-parser.add_argument('--version', help='the CoreOS version to use', default='current')
-parser.add_argument('--stack', help='Name of the stack being setup', required=True)
-parser.add_argument('--disable-termination-protection', help='Disable instance termination protection for the cluster that has etcd on it. Instances can be accidentally deleted', default=False, action='store_true')
+parser = configargparse.getArgumentParser(auto_env_var_prefix='DEIS_')
+parser.add_argument('-c', '--config', is_config_file=True, help='config file path')
 
-parser.add_argument('--aws-profile', help='Sets which AWS Profile configured in the AWS CLI to use',
-                    metavar="<profile>", default=os.getenv("AWS_CLI_PROFILE"))
+parser.add_argument('--stack', help='Name of the stack being setup', metavar='<name>', required=True)
+parser.add_argument('--channel', help='the CoreOS channel to use', env_var='COREOS_CHANNEL', default='stable')
+parser.add_argument('--version', help='the CoreOS version to use', env_var='COREOS_VERSION', default='current')
+parser.add_argument('--disable-termination-protection',
+                    help='Disable instance termination protection for the cluster that has etcd on it. Instances can be accidentally deleted',
+                    default=False, action='store_true')
+
+parser.add_argument('--aws-profile',
+                    help='Sets which AWS Profile configured in the AWS CLI to use',
+                    metavar="<profile>", env_var="AWS_CLI_PROFILE")
 
 group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument('--bastion-id', help='If a bastion host is being used then its EC2 instance ID is needed', metavar="<id>")
-group.add_argument('--vpc-id', help='VPC ID', metavar="<id>")
+group.add_argument('--bastion-id',
+                   help='If a bastion host is used then its EC2 instance id can be used to discover VPC information',
+                   metavar="<id>", env_var='BASTION_ID')
+group.add_argument('--vpc-id',
+                   help='VPC being deployed into. Can discover zones and subnets if not provided',
+                   metavar="<id>", env_var='VPC_ID')
 
 group = parser.add_argument_group('VPC', 'VPC configuration for all the planes. Zones and subnets are auto discovered unless specified here')
-group.add_argument('--vpc-zones', nargs='+', help='VPC Zones', metavar="<zones>")
-group.add_argument('--vpc-subnets', nargs='+', help='VPC Subnets', metavar="<subnets>")
-group.add_argument('--vpc-private-subnets', nargs='+', help='VPC Private Subnets', metavar="<subnets>")
+group.add_argument('--vpc-zones', nargs='+', help='VPC Availability Zones', metavar="<zones>", env_var='VPC_ZONES')
+group.add_argument('--vpc-subnets', nargs='+', help='VPC Public Subnets', metavar="<subnets>", env_var='VPC_SUBNETS')
+group.add_argument('--vpc-private-subnets', nargs='+', help='VPC Private Subnets', metavar="<subnets>", env_var='VPC_PRIVATE_SUBNETS')
 
 group = parser.add_argument_group('control-plane', 'Setup configuration around the Control Plane')
 group.add_argument('--isolate-control-plane',
-                   help='Set if Control Plane should be isolated',
+                   help='Set if Control Plane should be isolated into its own AutoScaling Group',
                    required=False, action='store_true')
 group.add_argument('--control-plane-colocate',
                    help='Other planes that should be colocated with the Control Plane',
@@ -71,14 +81,14 @@ group.add_argument('--control-plane-instances',
 group.add_argument('--control-plane-instances-max',
                    help='How many control plane instances to scale to max',
                    type=check_odd_number, metavar='<count>', default=9)
-group.add_argument('--control-plane-instance-size',
-                   help='AWS instance size, otherwise uses default in template',
+group.add_argument('--control-plane-instance-type',
+                   help='AWS instance type, otherwise uses default in template',
                    metavar='<instance type>',
-                   choices=get_instance_sizes())
+                   choices=get_instance_types())
 
 group = parser.add_argument_group('data-plane', 'Setup configuration around the Data Plane')
 group.add_argument('--isolate-data-plane',
-                   help='Set if Data Plane should be isolated',
+                   help='Set if Data Plane should be isolated into its own AutoScaling Group',
                    required=False, action='store_true')
 group.add_argument('--data-plane-colocate',
                    help='Other planes that should be colocated with the Data Plane',
@@ -90,35 +100,35 @@ group.add_argument('--data-plane-instances',
 group.add_argument('--data-plane-instances-max',
                    help='How many data plane instances to scale to max',
                    type=int, metavar='<count>', default=25)
-group.add_argument('--data-plane-instance-size',
-                   help='AWS instance size, otherwise uses default in template',
+group.add_argument('--data-plane-instance-type',
+                   help='AWS instance type, otherwise uses default in template',
                    metavar='<instance type>',
-                   choices=get_instance_sizes())
+                   choices=get_instance_types())
 
 group = parser.add_argument_group('router-mesh', 'Setup configuration around the Router Mesh')
 group.add_argument('--isolate-router',
-                   help='Set if Router Mesh should be isolated',
+                   help='Set if Router Mesh should be isolated into its own AutoScaling Group',
                    required=False, action='store_true')
-group.add_argument('--router-mesh-colocate',
+group.add_argument('--router-colocate',
                    dest="router_plane_colocate",
                    help='Other planes that should be colocated with the Router Mesh',
                    nargs='+', action=UniqueAppendAction, choices=['data', 'control'],
                    default=[])
-group.add_argument('--router-mesh-instances',
+group.add_argument('--router-instances',
                    dest="router_plane_instances",
                    help='How many router mesh instances to start',
                    type=int, metavar='<count>', default=3)
-group.add_argument('--router-mesh-instances-max',
+group.add_argument('--router-instances-max',
                    dest="router_plane_instances_max",
                    help='How many router mesh instances to scale to max',
                    type=int, metavar='<count>', default=9)
-group.add_argument('--router-mesh-instance-size',
-                   dest="router_plane_instance_size",
-                   help='AWS instance size, otherwise uses default in template',
+group.add_argument('--router-instance-type',
+                   dest="router_plane_instance_type",
+                   help='AWS instance type, otherwise uses default in template',
                    metavar='<instance type>',
-                   choices=get_instance_sizes())
+                   choices=get_instance_types())
 
-group = parser.add_argument_group('etcd', 'Setup configuration around the etcd cluster')
+group = parser.add_argument_group('etcd', 'Setup configuration around the etcd cluster. etcd is on the Control Plane if it is not configured to be isolated')
 group.add_argument('--isolate-etcd',
                    help='Set if etcd should be isolated',
                    required=False, action='store_true')
@@ -130,25 +140,31 @@ group.add_argument('--etcd-instances-max',
                    dest="etcd_plane_instances_max",
                    help='How many etcd mesh instances to scale to max',
                    type=check_odd_number, metavar='<count>', default=9)
-group.add_argument('--etcd-instance-size',
-                   dest="etcd_plane_instance_size",
-                   help='AWS instance size, otherwise uses default in template',
+group.add_argument('--etcd-instance-type',
+                   dest="etcd_plane_instance_type",
+                   help='AWS instance type, otherwise uses default in template',
                    metavar='<instance type>',
-                   choices=get_instance_sizes())
+                   choices=get_instance_types())
 
 group = parser.add_argument_group('other', 'Setup configuration around the planes that are not isolated out specifically')
 group.add_argument('--other-plane-instances',
+                   env_var='DEIS_NUM_INSTANCES',
                    help='How many instances to start',
                    type=int, metavar='<count>', default=3)
 group.add_argument('--other-plane-instances-max',
+                   env_var='DEIS_NUM_INSTANCES_MAX',
                    help='How many instances to scale to max',
                    type=int, metavar='<count>', default=9)
-group.add_argument('--other-plane-instance-size',
-                   help='AWS instance size, otherwise uses default in template',
+group.add_argument('--other-plane-instance-type',
+                   env_var='DEIS_INSTANCE_TYPE',
+                   help='AWS instance type, otherwise uses default in template',
                    metavar='<instance type>',
-                   choices=get_instance_sizes())
+                   choices=get_instance_types())
 
 args = vars(parser.parse_args())
+
+print(parser.format_values())
+sys.exit(1)
 
 # Add AWS-specific units to the shared user-data
 FORMAT_DOCKER_VOLUME = '''
@@ -218,6 +234,7 @@ ETCD_DROPIN = '''
 
 # etcd domain
 domain = 'etcd-%s.internal' % args['stack']
+
 
 # Diffs a list
 def diff(a, b):
@@ -295,6 +312,9 @@ def prepare_user_data(filename, etcd_cluster, planes=['control', 'data', 'router
     # Advertise all the peers via SRV records
     data['coreos']['etcd2']['discovery-srv'] = domain
 
+    # Point to the right data directory
+    data['coreos']['etcd2']['data-dir'] = '/media/etcd'
+
     return yaml.dump(data, default_flow_style=False)
 
 
@@ -312,11 +332,10 @@ def user_data(namespace, etcd_cluster, planes=[], worker=False, name=''):
 
 
 def add_static_plane(tp, template, etcd_cluster, planes, azs):
-    global elb_allocated  # This is nasty
     for i in range(1, (args[tp.lower() + '_plane_instances']+1)):
         instance = json.loads(open(os.path.join(CURR_DIR, 'instance.template.json'), 'r').read())
-        if args[tp.lower() + '_plane_instance_size']:
-            instance['Properties']['InstanceType'] = args[tp.lower() + '_plane_instance_size']
+        if args[tp.lower() + '_plane_instance_type']:
+            instance['Properties']['InstanceType'] = args[tp.lower() + '_plane_instance_type']
 
         # Pick the AZ - needed due to CF not exposing this properly for none ASG creation
         tag = '%s-node-%s' % (etcd_cluster, i)
@@ -327,7 +346,9 @@ def add_static_plane(tp, template, etcd_cluster, planes, azs):
             az = random.choice(azs)
 
         instance["Properties"]["AvailabilityZone"] = az
-        instance["Properties"]["NetworkInterfaces"][0]["SubnetId"] = {"Fn::FindInMap": ["VPCSubnets", az, "private"]}
+        instance["Properties"]["NetworkInterfaces"][0]["SubnetId"] = {
+            "Fn::FindInMap": ["VPCSubnets", az, "private"]
+        }
 
         node = "node-%s" % i
         instance['Properties']['UserData']['Fn::Base64']['Fn::Join'] = user_data(tp, etcd_cluster, planes, False, i)
@@ -335,7 +356,7 @@ def add_static_plane(tp, template, etcd_cluster, planes, azs):
         if args['disable_termination_protection']:
             instance['Properties']['DisableApiTermination'] = False
 
-        name = 'Etcd%sInstance' % i
+        name = 'EtcdInstance%s' % i
         template['Resources'][name] = instance
 
         dns = open(os.path.join(CURR_DIR, 'dns_record.template.json'), 'r').read()
@@ -349,18 +370,15 @@ def add_static_plane(tp, template, etcd_cluster, planes, azs):
         # see https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ResourceRecordTypes.html#SRVFormat
         template['Resources']['etcdInternalDNS']['Properties']['RecordSets'][0]['ResourceRecords'].append("0 0 2380 node-%s.%s" % (i, domain))
 
-    if not elb_allocated and 'router' in planes:
-        # Whatever plane serves the traffic needs this. Works differently than ASGs
-        elb_allocated = True
-        for i in range(1, (args[tp.lower() + '_plane_instances']+1)):
-            template['Resources']['DeisWebELB']['Properties']['Instances'].append({"Ref": 'Etcd%sInstance' % i})
+        if 'router' in planes:
+            # Whatever plane serves the traffic needs this. Works differently than ASGs
+            template['Resources']['DeisWebELB']['Properties']['Instances'].append({"Ref": name})
 
     return template
 
 
 # Adds an auto scaling group with all the right user data and sizes
 def add_plane(tp, template, etcd_cluster, worker=False, planes=[]):
-    global elb_allocated  # This is nasty
     tp = tp.capitalize()
 
     plane = open(os.path.join(CURR_DIR, 'plane.template.json'), 'r').read()
@@ -382,12 +400,10 @@ def add_plane(tp, template, etcd_cluster, worker=False, planes=[]):
     template['Resources'][tp + 'PlaneAutoScale']['Properties']['MaxSize'] = max_instances
 
     # Instance size
-    if args[tp.lower() + '_plane_instance_size']:
-        template['Resources'][tp + 'PlaneLaunchConfig']['Properties']['InstanceType'] = args[tp.lower() + '_plane_instance_size']
+    if args[tp.lower() + '_plane_instance_type']:
+        template['Resources'][tp + 'PlaneLaunchConfig']['Properties']['InstanceType'] = args[tp.lower() + '_plane_instance_type']
 
-    if not elb_allocated and 'router' in planes:
-        # Whatever plane serves the traffic needs this
-        elb_allocated = True
+    if 'router' in planes:
         template['Resources'][tp + 'PlaneAutoScale']['Properties']['LoadBalancerNames'] = [
             {'Ref': "DeisWebELB"}
         ]
@@ -395,7 +411,6 @@ def add_plane(tp, template, etcd_cluster, worker=False, planes=[]):
     return template
 
 # Figure out what goes where
-elb_allocated = False  # downside is this will go to the first router seen
 available_planes = ['control', 'router', 'data']
 isolated_planes = {}
 
@@ -453,7 +468,7 @@ if len(isolated_planes) == 1:
         isolated_planes[key]['worker'] = False
 
 # Seed in the base template
-template = json.load(open(os.path.join(CURR_DIR, 'cluster.template.json'), 'r'))
+template = json.load(open(os.path.join(CURR_DIR, 'template.json'), 'r'))
 
 # Get all the VPC information
 vpc = VPC(args['vpc_id'], args['bastion_id'], args['aws_profile'])

@@ -10,7 +10,8 @@
         "DesiredCapacity": {"Ref": "PlaneSize"},
         "Tags": [
             {"Key": "Name", "Value": "deis-plane-node", "PropagateAtLaunch": true}
-        ]
+        ],
+        "LoadBalancerNames" : []
       }
     },
     "PlaneLaunchConfig": {

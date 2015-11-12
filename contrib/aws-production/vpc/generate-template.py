@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import json
 import os
-import argparse
+import configargparse
 
 # hack since this is not a package
 if __name__ == '__main__':
@@ -14,14 +14,14 @@ if __name__ == '__main__':
         from ..base import AWS
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--include-private-subnets', dest='include_private_subnets', required=False, default=os.getenv('INCLUDE_PRIVATE_SUBNETS', True), action='store_true')
+parser = configargparse.getArgumentParser()
+parser.add_argument('--include-private-subnets', dest='include_private_subnets', required=False, env_var='INCLUDE_PRIVATE_SUBNETS', default=True, action='store_true')
 parser.add_argument('--disable-termination-protection', help='Disable instance termination protection. Instances can be accidentally deleted', default=False, action='store_true')
 args = vars(parser.parse_args())
 
 CURR_DIR = os.path.dirname(os.path.realpath(__file__))
 
-template = json.load(open(os.path.join(CURR_DIR, 'vpc.template.json'), 'r'))
+template = json.load(open(os.path.join(CURR_DIR, 'template.json'), 'r'))
 
 if args['include_private_subnets']:
     conn = AWS(os.getenv('AWS_CLI_PROFILE', 'default'))

@@ -7,34 +7,34 @@ if [ ! -z "$AWS_CLI_PROFILE" ]; then
 fi
 
 template_source() {
-    TEMPLATE=$1
-    STACK_NAME=$2
-    TEMPLATE_SIZE=$(wc -c < $TEMPLATE)
-    TEMPLATE_SOURCING="--template-body file://$TEMPLATE"
-    if [ "$TEMPLATE_SIZE" -gt "51200" ]; then
-        echo_yellow "Template file exceeds the 51,200 byte AWS CloudFormation limit. Uploading to S3"
+  TEMPLATE=$1
+  STACK_NAME=$2
+  TEMPLATE_SIZE=$(wc -c < $TEMPLATE)
+  TEMPLATE_SOURCING="--template-body file://$TEMPLATE"
+  if [ "$TEMPLATE_SIZE" -gt "51200" ]; then
+    echo_yellow "Template file exceeds the 51,200 byte AWS CloudFormation limit. Uploading to S3"
 
-        # Bucket name length is 63
-        KEY=$(aws configure get aws_access_key_id $EXTRA_AWS_CLI_ARGS)
-        UNIQUE=$(md5 -q -s $KEY$STACK_NAME)
-        BUCKET=deis-cloudformation-templates-$UNIQUE
-        if [[ "$(aws s3 ls $EXTRA_AWS_CLI_ARGS | grep -o $BUCKET)" != "$BUCKET" ]]; then
-            aws s3 mb s3://$BUCKET $EXTRA_AWS_CLI_ARGS
-            echo_green "Made s3 bucket $BUCKET to store the CF templates in"
-        fi
-
-        FILE=$(basename $TEMPLATE)
-        aws s3 cp --acl private \
-            --storage-class REDUCED_REDUNDANCY \
-            --only-show-errors \
-            $TEMPLATE s3://$BUCKET/$FILE \
-            $EXTRA_AWS_CLI_ARGS
-
-        TEMPLATE_SOURCING="--template-url https://$BUCKET.s3.amazonaws.com/$FILE"
-        echo_green "S3 upload done to s3://$BUCKET/$FILE"
+    # Bucket name length is 63
+    KEY=$(aws configure get aws_access_key_id $EXTRA_AWS_CLI_ARGS)
+    UNIQUE=$(md5 -q -s $KEY$STACK_NAME)
+    BUCKET=deis-cloudformation-templates-$UNIQUE
+    if [[ "$(aws s3 ls $EXTRA_AWS_CLI_ARGS | grep -o $BUCKET)" != "$BUCKET" ]]; then
+      aws s3 mb s3://$BUCKET $EXTRA_AWS_CLI_ARGS
+      echo_green "Made s3 bucket $BUCKET to store the CF templates in"
     fi
 
-    #echo $TEMPLATE_SOURCING
+    FILE=$(basename $TEMPLATE)
+    aws s3 cp --acl private \
+        --storage-class REDUCED_REDUNDANCY \
+        --only-show-errors \
+        $TEMPLATE s3://$BUCKET/$FILE \
+        $EXTRA_AWS_CLI_ARGS
+
+    TEMPLATE_SOURCING="--template-url https://$BUCKET.s3.amazonaws.com/$FILE"
+    echo_green "S3 upload done to s3://$BUCKET/$FILE"
+  fi
+
+  #echo $TEMPLATE_SOURCING
 }
 
 get_sshkey() {
@@ -45,67 +45,67 @@ get_sshkey() {
 }
 
 check_sshkey() {
-    PARAMETERS=$1
+  PARAMETERS=$1
 
-    sshkey=$(get_sshkey $PARAMETERS)
-    echo_green "Verifying SSH Key $sshkey"
-    if [ -z $sshkey ]; then
-        echo_red "Could not locate a SSH Key Pair in the parameters file"
-        echo_red "Follow the SSH Key Pair instructions at http://docs.deis.io/en/latest/installing_deis/aws/"
-        exit 1
+  sshkey=$(get_sshkey $PARAMETERS)
+  echo_green "Verifying SSH Key $sshkey"
+  if [ -z $sshkey ]; then
+    echo_red "Could not locate a SSH Key Pair in the parameters file"
+    echo_red "Follow the SSH Key Pair instructions at http://docs.deis.io/en/latest/installing_deis/aws/"
+    exit 1
+  else
+    fingerprint=$(
+        aws ec2 describe-key-pairs \
+            --query "KeyPairs[?KeyName=='$sshkey'].[KeyFingerprint]" \
+            --output text \
+            $EXTRA_AWS_CLI_ARGS
+    )
+
+    if [ -z $fingerprint ]; then
+      echo_red "SSH Key Pair '$sshkey' does not exist in AWS yet. Did you forgot to import it?"
+      echo_red "Follow the SSH Key Pair instructions at http://docs.deis.io/en/latest/installing_deis/aws/"
+      exit 1
     else
-        fingerprint=$(
-            aws ec2 describe-key-pairs \
-                --query "KeyPairs[?KeyName=='$sshkey'].[KeyFingerprint]" \
-                --output text \
-                $EXTRA_AWS_CLI_ARGS
-        )
+      if [ -z "$2" ]; then
+        keypath="$HOME/.ssh/$sshkey"
+      else
+        # expand home directory
+        keypath=$2
+        keypath="${keypath/#\~/$HOME}"
+      fi
 
-        if [ -z $fingerprint ]; then
-           echo_red "SSH Key Pair '$sshkey' does not exist in AWS yet. Did you forgot to import it?"
-           echo_red "Follow the SSH Key Pair instructions at http://docs.deis.io/en/latest/installing_deis/aws/"
-           exit 1
-        else
-            if [ -z "$2" ]; then
-                keypath="$HOME/.ssh/$sshkey"
-            else
-                # expand home directory
-                keypath=$2
-                keypath="${keypath/#\~/$HOME}"
-            fi
+      echo_green "Using $keypath as the private key to compare against"
 
-            echo_green "Using $keypath as the private key to compare against"
+      local_fingerprint=$(python $PARENT_DIR/ec2-fingerprint-key.py -p $keypath)
+      if [ "$local_fingerprint" != "$fingerprint" ]; then
+        echo_red "Local fingerprint of $keypath does not match the keypair '$sshkey' in AWS"
+        echo_red "Local Fingerprint: $local_fingerprint"
+        echo_red "AWS Fingerprint: $fingerprint"
+        exit 1
+      fi
 
-            local_fingerprint=$(python $PARENT_DIR/ec2-fingerprint-key.py -p $keypath)
-            if [ "$local_fingerprint" != "$fingerprint" ]; then
-                echo_red "Local fingerprint of $keypath does not match the keypair '$sshkey' in AWS"
-                echo_red "Local Fingerprint: $local_fingerprint"
-                echo_red "AWS Fingerprint: $fingerprint"
-                exit 1
-            fi
-
-            if ! ssh-add -l | grep -q $keypath; then
-                echo_red "Could not locate $keypath in ssh-add -l - This is required for Deis"
-                echo_red "Load the key with: ssh-add $keypath"
-                exit 1
-            fi
-        fi
+      if ! ssh-add -l | grep -q $keypath; then
+        echo_red "Could not locate $keypath in ssh-add -l - This is required for Deis"
+        echo_red "Load the key with: ssh-add $keypath"
+        exit 1
+      fi
     fi
+  fi
 
-    echo_green "All SSH Keys look good to go!"
+  echo_green "All SSH Keys look good to go!"
 }
 
 get_stack_status() {
-    STACK_NAME=$1
-    STACK_STATUS=$(
-      aws cloudformation describe-stacks \
-          --stack-name $STACK_NAME \
-          --query 'Stacks[].StackStatus' \
-          --output text \
-          $EXTRA_AWS_CLI_ARGS
-    )
+  STACK_NAME=$1
+  STACK_STATUS=$(
+    aws cloudformation describe-stacks \
+        --stack-name $STACK_NAME \
+        --query 'Stacks[].StackStatus' \
+        --output text \
+        $EXTRA_AWS_CLI_ARGS
+  )
 
-    printf $STACK_STATUS
+  printf $STACK_STATUS
 }
 
 # Prepare bailout function to prevent us polluting the namespace
@@ -124,19 +124,19 @@ check_aws() {
 
 # Get Bastion Host based on the instance ID
 get_bastion_host() {
-    if [ -n $BASTION_HOST ]; then
-        printf "$BASTION_HOST"
-    fi
-
-    BASTION_HOST=$(
-      aws ec2 describe-instances \
-        --instance-ids $BASTION_ID \
-        --query 'Reservations[].Instances[0].PublicIpAddress' \
-        --output text \
-        $EXTRA_AWS_CLI_ARGS
-    )
-
+  if [ -n $BASTION_HOST ]; then
     printf "$BASTION_HOST"
+  fi
+
+  BASTION_HOST=$(
+    aws ec2 describe-instances \
+      --instance-ids $BASTION_ID \
+      --query 'Reservations[].Instances[0].PublicIpAddress' \
+      --output text \
+      $EXTRA_AWS_CLI_ARGS
+  )
+
+  printf "$BASTION_HOST"
 }
 
 # Copy a file to the bastion host
@@ -159,17 +159,16 @@ stack_progress() {
   SLEEPTIME=10
   COUNTER=1
   INSTANCE_IDS=""
-
-  until [ $(wc -w <<< $INSTANCE_IDS) -eq $DEIS_NUM_TOTAL_INSTANCES ] && ([ "$STACK_STATUS" = "${TYPE}_COMPLETE" ] || [ "$STACK_STATUS" = "${TYPE}_COMPLETE_CLEANUP_IN_PROGRESS" ]) ; do
+  until [ $(total_running_instances) -eq $(total_instances) ] && ([ "$STACK_STATUS" = "${TYPE}_COMPLETE" ] || [ "$STACK_STATUS" = "${TYPE}_COMPLETE_CLEANUP_IN_PROGRESS" ]) ; do
     if [ $COUNTER -gt $ATTEMPTS ]; then
-      echo "Instance action failed (timeout, $(wc -w <<< $INSTANCE_IDS) of $DEIS_NUM_TOTAL_INSTANCES ready after 10m)"
+      echo "Instance action failed (timeout, $(wc -w <<< $INSTANCE_IDS) of $TOTAL ready after 10m)"
       echo "Operation failed"
       exit 1
     fi
 
     STACK_STATUS=$(get_stack_status $STACK_NAME)
     if [ $STACK_STATUS != "${TYPE}_IN_PROGRESS" -a $STACK_STATUS != "${TYPE}_COMPLETE" ] ; then
-      echo "operation failed: "
+      echo_red "operation failed: "
       aws --output text cloudformation describe-stack-events \
           --stack-name $STACK_NAME \
           --query "StackEvents[?ResourceStatus=='${TYPE}_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
@@ -177,17 +176,8 @@ stack_progress() {
       exit 1
     fi
 
-    INSTANCE_IDS=$(
-      aws ec2 describe-instances \
-          --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running \
-          --query 'Reservations[].Instances[].[ InstanceId ]' \
-          --output text \
-          $EXTRA_AWS_CLI_ARGS
-    )
-
     echo "Waiting for operation to complete ($STACK_STATUS, $(expr 61 - $COUNTER)0s) ..."
     sleep $SLEEPTIME
-
     let COUNTER=COUNTER+1
   done
 }
@@ -198,29 +188,187 @@ stack_health() {
   SLEEPTIME=10
   COUNTER=1
   INSTANCE_STATUSES=""
-  until [ `wc -w <<< $INSTANCE_STATUSES` -eq $DEIS_NUM_TOTAL_INSTANCES ]; do
+  until [ $(healthy_instances) -eq $(total_instances) ]; do
     if [ $COUNTER -gt $ATTEMPTS ]; then
       exit 1
     fi
 
     if [ $COUNTER -ne 1 ]; then sleep $SLEEPTIME; fi
     echo "Waiting for instances to pass initial health checks ($(expr 61 - $COUNTER)0s) ..."
-    INSTANCE_IDS=$(
+    let COUNTER=COUNTER+1
+  done
+}
+
+total_instances() {
+  TOTAL_INSTANCES=$(
+    aws ec2 describe-instances \
+        --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME \
+        --query 'Reservations[].Instances[].[ InstanceId ]' \
+        --output text \
+        $EXTRA_AWS_CLI_ARGS
+  )
+
+  TOTAL=$(wc -w <<< $TOTAL_INSTANCES)
+  echo $TOTAL
+}
+
+running_instances() {
+  INSTANCE_IDS=$(
+    aws ec2 describe-instances \
+        --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running \
+        --query 'Reservations[].Instances[].[ InstanceId ]' \
+        --output text \
+        $EXTRA_AWS_CLI_ARGS
+  )
+
+  echo $INSTANCE_IDS
+}
+
+total_running_instances() {
+  INSTANCE_IDS=$(running_instances)
+  echo $(wc -w <<< $INSTANCE_IDS)
+}
+
+healthy_instances() {
+  INSTANCE_IDS=$(running_instances)
+  INSTANCE_STATUSES=$(
+    aws ec2 describe-instance-status \
+        --filters Name=instance-status.reachability,Values=passed \
+        --instance-ids $INSTANCE_IDS \
+        --query 'InstanceStatuses[].[ InstanceId ]' \
+        --output text \
+        $EXTRA_AWS_CLI_ARGS
+  )
+
+  TOTAL=$(wc -w <<< $INSTANCE_STATUSES)
+  echo $TOTAL
+}
+
+get_elb_info() {
+  # Get ELB public DNS name through cloudformation
+  ELB_DNS_NAME=$(
+    aws cloudformation describe-stacks \
+      --stack-name $STACK_NAME \
+      --max-items 1 \
+      --query 'Stacks[].[ Outputs[?OutputKey==`DNSName`].OutputValue ]' \
+      --output=text \
+      $EXTRA_AWS_CLI_ARGS
+  )
+
+  # Get ELB friendly name through aws elb
+  ELB_NAME=$(
+    aws elb describe-load-balancers \
+      --query "LoadBalancerDescriptions[?DNSName=='$ELB_DNS_NAME'].[ LoadBalancerName ]" \
+      --output=text \
+      $EXTRA_AWS_CLI_ARGS
+  )
+  echo_green "\nUsing ELB $ELB_NAME at $ELB_DNS_NAME\n"
+}
+
+get_first_instance() {
+  if [ -n $FIRST_INSTANCE ]; then
+    printf "$FIRST_INSTANCE"
+  fi
+
+  # Instances launched into a VPC may not have a PublicIPAddress
+  for ip_type in PublicIpAddress PrivateIpAddress; do
+    FIRST_INSTANCE=$(
       aws ec2 describe-instances \
           --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running \
-          --query 'Reservations[].Instances[].[ InstanceId ]' \
+          --query "Reservations[].Instances[].[$ip_type][0]" \
           --output text \
           $EXTRA_AWS_CLI_ARGS
     )
 
-    INSTANCE_STATUSES=$(
-      aws ec2 describe-instance-status \
-          --filters Name=instance-status.reachability,Values=passed \
-          --instance-ids $INSTANCE_IDS \
-          --query 'InstanceStatuses[].[ InstanceId ]' \
-          --output text \
-          $EXTRA_AWS_CLI_ARGS
-    )
-    let COUNTER=COUNTER+1
+    if [[ ! $FIRST_INSTANCE == "None" ]]; then
+      printf "$FIRST_INSTANCE"
+    fi
   done
+
+  if [[ $FIRST_INSTANCE == "None" ]]; then
+    # Make the varialbe empty so we don't have to compare against "None"
+    FIRST_INSTANCE=''
+    printf "$FIRST_INSTANCE"
+  fi
+}
+
+# Run commands via the bastion host if bastion is set
+run () {
+  # SSH into the bastion host
+  if [ -n $BASTION_ID ]; then
+    # Source in SSH env vars this way so there is no need to
+    # edit sshd_config for PermitUserEnvironment
+    # Lets us load in the existing ssh-agent that's running
+    cmd="[[ -e ~/.ssh/environment ]] && source ~/.ssh/environment; $@"
+    TUNNEL=''
+    INSTANCE="$(get_first_instance)"
+    if [ -n $INSTANCE ]; then
+      TUNNEL="export DEISCTL_TUNNEL=$INSTANCE;"
+    fi
+
+    ssh -o UserKnownHostsFile=/dev/null \
+        -o StrictHostKeyChecking=no \
+        -o LogLevel=quiet \
+        ubuntu@$(get_bastion_host) "($TUNNEL $cmd)" >/dev/null
+  else
+    # Run it from the local system
+    $@ >/dev/null
+  fi
+}
+
+get_available_instances() {
+  # Print instance info
+  printf "\nInstances are available:\n"
+  [ -n "$BASTION_ID" ] && ip="PrivateIpAddress" || ip="PublicIpAddress"
+  aws ec2 describe-instances \
+    --filters Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME Name=instance-state-name,Values=running \
+    --query "Reservations[].Instances[].[InstanceId,$ip,InstanceType,Placement.AvailabilityZone,State.Name]" \
+    --output text \
+    $EXTRA_AWS_CLI_ARGS
+}
+
+create_stack() {
+  # Create an AWS cloudformation stack based on the a generated template
+  echo_green "Starting CloudFormation Stack creation"
+  template_source $TEMPLATE $STACK_NAME
+  aws cloudformation create-stack \
+    $TEMPLATE_SOURCING \
+    --stack-name $STACK_NAME \
+    --parameters "$(<$PARAMETERS_FILE)" \
+    --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \
+    $EXTRA_AWS_CLI_ARGS
+  
+  # Loop until stack creation is complete
+  if ! stack_progress $STACK_NAME 'CREATE' ; then
+    echo_red "Destroying stack $STACK_NAME"
+    bailout $STACK_NAME
+    exit 1
+  fi
+
+  # Loop until the instances pass health checks
+  if ! stack_health $STACK_NAME ; then
+    echo_red "Health checks not passed after 10m, giving up"
+    echo_red "Destroying stack $STACK_NAME"
+    bailout $STACK_NAME
+    exit 1
+  fi
+
+  echo_green "\nYour Stack ($STACK_NAME) was deployed to AWS CloudFormation.\n"
+}
+
+update_stack() {
+  # Update the AWS CloudFormation stack
+  echo_green "Starting CloudFormation Stack updating"
+  template_source $TEMPLATE $STACK_NAME
+  aws cloudformation update-stack \
+    $TEMPLATE_SOURCING \
+    --stack-name $STACK_NAME \
+    --parameters "$(<$PARAMETERS_FILE)" \
+    --stack-policy-body "$(<$THIS_DIR/stack_policy.json)" \
+    $EXTRA_AWS_CLI_ARGS
+
+  # Loop until stack update is complete
+  stack_progress $STACK_NAME 'UPDATE'
+
+  echo_green "\nYour stack ($STACK_NAME) on AWS CloudFormation has been successfully updated.\n"
 }
