@@ -1,6 +1,6 @@
 # Deis controller requirements
 #
-Django==1.6.11
+Django==1.7.11
 django-cors-headers==1.0.0
 # required for south migrations
 django-fsm==2.2.0
@@ -16,5 +16,4 @@ python-ldap==2.4.19
 PyYAML==3.11
 requests==2.8.1
 simpleflock==0.0.2
-South==1.0.2
 static==1.1.1
